@@ -17,7 +17,7 @@ ball-plate-pid-control/
 ├── gui/         # Desktop control interface
 ├── docs/        # System documentation
 └── README.md
-```x
+```
 
 ## Project Status
 

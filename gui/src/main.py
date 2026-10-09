@@ -1,0 +1,20 @@
+import sys
+
+from PyQt6.QtWidgets import QApplication
+
+from main_window import BallPlateWindow
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName("Ball and Plate Control System")
+    app.setStyle("Fusion")
+
+    window = BallPlateWindow()
+    window.show()
+
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

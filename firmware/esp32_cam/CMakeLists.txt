@@ -2,4 +2,4 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-project(ball_plate_firmware)
+project(ball_plate_camera)

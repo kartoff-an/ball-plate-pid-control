@@ -24,7 +24,9 @@ All team members should:
 
 ```text
 ball-plate-pid-control/
-├── firmware/   # ESP32 firmware and embedded logic
+├── firmware/
+│   ├── esp32_cam/  # ESP32-CAM firmware
+│   └── esp32_s3/   # ESP32-S3 firmware
 ├── gui/        # Python/PyQt desktop application
 ├── docs/       # engineering notes and checklists
 ├── README.md
@@ -63,7 +65,7 @@ python -m main
 
 ### Firmware environment
 
-Use the ESP-IDF toolchain for firmware development in the `firmware/` directory. Hardware validation should be performed in the smallest practical setup relevant to the change being made.
+Use the ESP-IDF toolchain in the target-specific directory under `firmware/` (`esp32_cam/` or `esp32_s3/`). Hardware validation should be performed in the smallest practical setup relevant to the change being made.
 
 ## Team workflow
 

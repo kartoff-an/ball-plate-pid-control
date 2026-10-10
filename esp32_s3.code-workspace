@@ -1,7 +1,7 @@
 {
   "folders": [
     {
-      "path": "firmware"
+      "path": "firmware/esp32_s3"
     }
   ],
   "settings": {

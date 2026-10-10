@@ -18,4 +18,5 @@ build
 dist/
 *.egg-info
 
-firmware/sdkconfig.old
+firmware/**/sdkconfig.old
+firmware/**/managed_components

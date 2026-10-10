@@ -4,7 +4,7 @@ A 2-DOF ball-and-plate balancing platform developed as a Feedback and Control Sy
 
 ## System Architecture
 
-* **Firmware:** ESP32-WROOM-32 with ESP-IDF for real-time PID control and servo actuation.
+* **Firmware:** ESP32-CAM and ESP32-S3 with ESP-IDF.
 * **GUI:** Python and PyQt6 for system monitoring and control.
 * **Computer Vision:** OpenCV for ball tracking and position estimation.
 * **Actuation:** Two servo motors for independent plate-axis control.
@@ -13,7 +13,9 @@ A 2-DOF ball-and-plate balancing platform developed as a Feedback and Control Sy
 
 ```text
 ball-plate-pid-control/
-├── firmware/    # ESP32 embedded firmware
+├── firmware/
+│   ├── esp32_cam/  # ESP32-CAM firmware
+│   └── esp32_s3/   # ESP32-S3 firmware
 ├── gui/         # Desktop control interface
 ├── docs/        # System documentation
 └── README.md

@@ -1,10 +1,10 @@
 #include "esp_log.h"
 
-static const char *TAG = "BALL_PLATE";
+static const char *TAG = "BALL_PLATE_CAMERA";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Ball and Plate Controller starting");
+    ESP_LOGI(TAG, "Ball and Plate Camera starting");
 
     // TODO: Initialize hardware interfaces.
     // TODO: Initialize the controller.

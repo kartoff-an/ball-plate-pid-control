@@ -1,0 +1,14 @@
+{
+  "folders": [
+    {
+      "path": "firmware"
+    }
+  ],
+  "settings": {
+    "idf.currentSetup": "C:\\esp\\v6.1\\esp-idf",
+    "idf.openOcdConfigs": [
+      "board/esp32s3-builtin.cfg"
+    ],
+    "idf.customExtraVars": {}
+  }
+}

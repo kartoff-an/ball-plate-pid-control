@@ -150,14 +150,3 @@ Pull requests should include:
 - notes about hardware, calibration, or environment constraints when applicable
 
 Keep PRs focused and reviewable. Large cross-cutting changes should be split into smaller, manageable updates.
-
-## Review and handoff
-
-When handing off work:
-
-- state what changed and why
-- note any remaining risks or follow-up tasks
-- mention the validation that was completed
-- call out any hardware or configuration dependencies
-
-This repository is intended for internal team collaboration. The expected standard is clear communication, disciplined review, and reproducible validation.

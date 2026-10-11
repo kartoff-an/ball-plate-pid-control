@@ -85,6 +85,44 @@ Use descriptive names such as:
 - `docs/gui-setup-update`
 - `refactor/control-loop-cleanup`
 
+## Git workflow
+
+Run these commands in PowerShell. Replace the example branch name with a short, descriptive name for your task.
+
+### Clone the repository and create a branch
+
+```powershell
+git clone https://github.com/kartoff-an/ball-plate-pid-control.git
+cd ball-plate-pid-control
+git switch main
+git pull
+git switch -c feature/describe-your-change
+```
+
+If you already have a local clone, update `main` and create your new branch from it:
+
+```powershell
+cd path\to\ball-plate-pid-control
+git switch main
+git pull
+git switch -c feature/describe-your-change
+```
+
+### Commit and open a pull request
+
+After making and validating your changes, review and commit only the files for your task:
+
+```powershell
+git status
+git diff
+git add path\to\changed-file
+git diff --cached
+git commit -m "Describe the change"
+git push -u origin feature/describe-your-change
+```
+
+Open a pull request on GitHub from your branch into `main`. Include a summary of the change and the validation you performed. Keep commits focused, and do not force-push to shared branches.
+
 ## Coding expectations
 
 - Prefer readable, maintainable code over clever shortcuts.

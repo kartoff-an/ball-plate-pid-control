@@ -139,11 +139,14 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Starting ball-and-plate camera application");
 
-    // CAMERA CAPTURE
-
-    ESP_ERROR_CHECK(camera_capture_init());
-
+    /*
+     * Initialize Wi-Fi before the camera starts its DMA ISR. Wi-Fi setup can
+     * access flash/NVS, which is unsafe while cached memory is unavailable.
+     */
     ESP_ERROR_CHECK(wifi_stream_init());
+
+    // CAMERA CAPTURE
+    ESP_ERROR_CHECK(camera_capture_init());
 
     BaseType_t result = xTaskCreatePinnedToCore(camera_task, "camera_task", 4096, NULL, 5, NULL, 1);
     if (result != pdPASS) {

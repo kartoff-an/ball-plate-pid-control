@@ -4,7 +4,7 @@ idf_component_register(
     REQUIRES
         camera_capture
         communication
-        wifi_stream
+        streaming
         esp_timer
         esp_common
 )

@@ -23,12 +23,12 @@
 
 ## Phase 3 — Camera and Ball Tracking Panel
 
-* [ ] Create a camera preview placeholder.
-* [ ] Maintain the camera preview's aspect ratio when resizing.
-* [ ] Display placeholder values for the measured ball X/Y coordinates.
-* [ ] Display placeholder values for the target X/Y coordinates.
-* [ ] Add visual indicators for the ball position and target position.
-* [ ] Clearly label all measurements and units.
+* [x] Create a camera preview placeholder.
+* [x] Maintain the camera preview's aspect ratio when resizing.
+* [x] Display placeholder values for the measured ball X/Y coordinates.
+* [x] Display placeholder values for the target X/Y coordinates.
+* [x] Add visual indicators for the ball position and target position.
+* [x] Clearly label all measurements and units.
 
 ## Phase 4 — Setpoint Controls
 
@@ -63,19 +63,19 @@
 
 * [ ] Display plate pitch in degrees.
 * [ ] Display plate roll in degrees.
-* [ ] Display X-axis position error in millimeters.
-* [ ] Display Y-axis position error in millimeters.
-* [ ] Display elapsed time.
-* [ ] Use placeholder values until telemetry is implemented.
-* [ ] Distinguish unavailable data from actual zero measurements.
+* [x] Display X-axis position error in millimeters.
+* [x] Display Y-axis position error in millimeters.
+* [x] Display elapsed time.
+* [x] Use placeholder values until telemetry is implemented.
+* [x] Distinguish unavailable data from actual zero measurements.
 
 ## Phase 8 — Plotting Panel
 
-* [ ] Create a placeholder for position-versus-time plots.
-* [ ] Create a placeholder for tracking-error plots.
-* [ ] Label the future axes and measurement units.
+* [x] Create a placeholder for position-versus-time plots.
+* [x] Create a placeholder for tracking-error plots.
+* [x] Label the future axes and measurement units.
 * [ ] Define how the plotting area should resize.
-* [ ] Keep plotting logic separate from the main window.
+* [x] Keep plotting logic separate from the main window.
 
 ## Phase 9 — Layout and Usability
 

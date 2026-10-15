@@ -1,14 +1,13 @@
+#include "wifi_ap.h"
+
+#include "esp_err.h"
 #include "esp_log.h"
 
-static const char *TAG = "BALL_PLATE_ESP32S3";
+static const char *TAG = "APP_MAIN";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Ball and Plate Controller starting");
+    ESP_ERROR_CHECK(wifi_ap_init());
 
-    // TODO: Initialize hardware interfaces.
-    // TODO: Initialize the controller.
-    // TODO: Start the control task.
-
-    ESP_LOGW(TAG, "Hardware initialization is not implemented yet");
+    ESP_LOGI(TAG, "ESP32-S3 AP is ready");
 }

@@ -5,6 +5,8 @@
 #include "camera_capture.h"
 #include "communication.h"
 #include "wifi_stream.h"
+#include "udp_preview.h"
+#include "wifi_station.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -137,24 +139,28 @@ static void communication_test_task(void *pvParameters)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Starting ball-and-plate camera application");
+    ESP_LOGI(TAG, "Starting ESP32-CAM");
 
-    /*
-     * Initialize Wi-Fi before the camera starts its DMA ISR. Wi-Fi setup can
-     * access flash/NVS, which is unsafe while cached memory is unavailable.
-     */
-    ESP_ERROR_CHECK(wifi_stream_init());
+    ESP_ERROR_CHECK(wifi_station_connect());
+
+    ESP_LOGI(TAG, "Wi-Fi connected");
+
+    ESP_ERROR_CHECK(udp_preview_init());
+
+    ESP_LOGI(TAG, "UDP connection-test listener initialized");
+
+    ESP_LOGI(TAG, "Camera frame capture and transmission are paused");
 
     // CAMERA CAPTURE
-    ESP_ERROR_CHECK(camera_capture_init());
+    // ESP_ERROR_CHECK(camera_capture_init());
 
-    BaseType_t result = xTaskCreatePinnedToCore(camera_task, "camera_task", 4096, NULL, 5, NULL, 1);
-    if (result != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create camera task");
-        return;
-    }
+    // BaseType_t result = xTaskCreatePinnedToCore(camera_task, "camera_task", 4096, NULL, 5, NULL, 1);
+    // if (result != pdPASS) {
+    //     ESP_LOGE(TAG, "Failed to create camera task");
+    //     return;
+    // }
 
-    ESP_LOGI(TAG, "Camera task started on Core 1");
+    // ESP_LOGI(TAG, "Camera task started on Core 1");
 
     // COMMUNICATION
 

@@ -5,7 +5,6 @@
 #include "camera_capture.h"
 #include "communication.h"
 #include "wifi_stream.h"
-#include "udp_preview.h"
 #include "wifi_station.h"
 
 #include "esp_err.h"
@@ -145,22 +144,17 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Wi-Fi connected");
 
-    ESP_ERROR_CHECK(udp_preview_init());
+    ESP_ERROR_CHECK(wifi_stream_init());
 
-    ESP_LOGI(TAG, "UDP connection-test listener initialized");
+    ESP_ERROR_CHECK(camera_capture_init());
 
-    ESP_LOGI(TAG, "Camera frame capture and transmission are paused");
+    BaseType_t result = xTaskCreatePinnedToCore(camera_task, "camera_task", 4096, NULL, 5, NULL, 1);
+    if (result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create camera task");
+        return;
+    }
 
-    // CAMERA CAPTURE
-    // ESP_ERROR_CHECK(camera_capture_init());
-
-    // BaseType_t result = xTaskCreatePinnedToCore(camera_task, "camera_task", 4096, NULL, 5, NULL, 1);
-    // if (result != pdPASS) {
-    //     ESP_LOGE(TAG, "Failed to create camera task");
-    //     return;
-    // }
-
-    // ESP_LOGI(TAG, "Camera task started on Core 1");
+    ESP_LOGI(TAG, "Camera frame capture and UDP streaming started");
 
     // COMMUNICATION
 

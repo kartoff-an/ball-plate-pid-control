@@ -1,4 +1,5 @@
 
+import argparse
 import socket
 import struct
 import threading
@@ -15,7 +16,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-HOST = "192.168.4.1"
 ESP32_PORT = 9000
 PC_PORT = 9001
 
@@ -45,9 +45,10 @@ HEADER_FORMAT = "!4sIIHH"
 class FrameFetcher(QThread):
     connection_changed = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, camera_ip):
         super().__init__()
 
+        self.camera_ip = camera_ip
         self.running = True
         self.sock = None
         self.lock = threading.Lock()
@@ -92,11 +93,9 @@ class FrameFetcher(QThread):
                 # initial registration datagram was lost.
                 if now - last_hello >= HELLO_INTERVAL:
                     try:
-                        sock.sendto(b"HELO", (HOST, ESP32_PORT))
+                        sock.sendto(b"HELO", (self.camera_ip, ESP32_PORT))
                     except OSError as exc:
-                        self.connection_changed.emit(
-                            f"UDP registration error: {exc}"
-                        )
+                        self.connection_changed.emit(f"UDP registration error: {exc}")
 
                     last_hello = now
 
@@ -111,17 +110,14 @@ class FrameFetcher(QThread):
 
                 last_packet_time = time.perf_counter()
 
-                if sender[0] != HOST:
+                if sender[0] != self.camera_ip:
                     continue
 
                 if len(packet) < HEADER_SIZE:
                     continue
 
                 magic, sequence, length, packet_index, packet_count = (
-                    struct.unpack(
-                        HEADER_FORMAT,
-                        packet[:HEADER_SIZE],
-                    )
+                    struct.unpack(HEADER_FORMAT, packet[:HEADER_SIZE])
                 )
 
                 if magic != b"GRAY":
@@ -139,10 +135,7 @@ class FrameFetcher(QThread):
                 payload = packet[HEADER_SIZE:]
 
                 offset = packet_index * PAYLOAD_SIZE
-                expected_length = min(
-                    PAYLOAD_SIZE,
-                    FRAME_SIZE - offset,
-                )
+                expected_length = min(PAYLOAD_SIZE, FRAME_SIZE - offset)
 
                 if len(payload) != expected_length:
                     continue
@@ -164,10 +157,7 @@ class FrameFetcher(QThread):
                     # Bound memory use and prevent old incomplete frames
                     # from accumulating.
                     while len(pending) >= MAX_PENDING_FRAMES:
-                        oldest_sequence = min(
-                            pending,
-                            key=lambda seq: pending[seq]["time"],
-                        )
+                        oldest_sequence = min(pending, key=lambda seq: pending[seq]["time"])
                         pending.pop(oldest_sequence)
                         self.incomplete_frames += 1
 
@@ -255,7 +245,7 @@ class FrameFetcher(QThread):
 
 
 class CameraWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, camera_ip):
         super().__init__()
 
         self.setWindowTitle("Ball and Plate - UDP Camera Preview")
@@ -275,7 +265,7 @@ class CameraWindow(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
-        self.fetcher = FrameFetcher()
+        self.fetcher = FrameFetcher(camera_ip)
         self.fetcher.connection_changed.connect(
             self.on_connection_changed
         )
@@ -331,9 +321,7 @@ class CameraWindow(QMainWindow):
             self.displayed_frames = 0
             self.fps_start = time.perf_counter()
 
-            packets, completed, incomplete = (
-                self.fetcher.get_statistics()
-            )
+            packets, completed, incomplete = (self.fetcher.get_statistics())
 
             self.status_label.setText(
                 f"UDP | Display: {self.display_fps:.1f} FPS "
@@ -349,9 +337,17 @@ class CameraWindow(QMainWindow):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Display UDP grayscale frames from the ESP32-CAM.")
+    parser.add_argument(
+        "--camera-ip",
+        required=True,
+        help="ESP32-CAM station IP shown in its serial log (not the hub IP).",
+    )
+    args = parser.parse_args()
+
     app = QApplication([])
 
-    window = CameraWindow()
+    window = CameraWindow(args.camera_ip)
     window.resize(800, 600)
     window.show()
 

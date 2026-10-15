@@ -153,6 +153,11 @@ esp_err_t wifi_station_connect(void)
         return error;
     }
 
+    error = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (error != ESP_OK) {
+        ESP_LOGW(TAG, "Could not disable Wi-Fi power saving");
+    }
+
     initialized = true;
 
     ESP_LOGI(TAG, "Waiting for access point connection");

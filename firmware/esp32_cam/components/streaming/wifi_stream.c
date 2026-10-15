@@ -1,5 +1,4 @@
 #include <inttypes.h>
-#include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -13,20 +12,11 @@
 #include "wifi_stream.h"
 
 #include "esp_log.h"
-#include "esp_netif.h"
-#include "esp_event.h"
-#include "esp_wifi.h"
 #include "esp_heap_caps.h"
-#include "nvs_flash.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-
-#define WIFI_SSID       "BallPlate-Camera"
-#define WIFI_PASSWORD   "BallPlateTest123"
-#define WIFI_CHANNEL    1
-#define MAX_CONNECTIONS 2
 
 #define UDP_PORT        9000
 
@@ -141,23 +131,6 @@ esp_err_t wifi_stream_submit_frame(const uint8_t *pixels, size_t frame_length)
     return ESP_OK;
 }
 
-static esp_err_t initialize_nvs(void)
-{
-    esp_err_t error = nvs_flash_init();
-
-    if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-
-        error = nvs_flash_erase();
-        if (error != ESP_OK) {
-            return error;
-        }
-
-        error = nvs_flash_init();
-    }
-
-    return error;
-}
-
 static size_t build_frame_packet(
     uint8_t *packet,
     const uint8_t *pixels,
@@ -234,7 +207,7 @@ static int send_frame_udp(
  * Accept HELLO datagrams during streaming.
  *
  * A PC can register or update its receiving port by sending
- * the four ASCII bytes "HELO" to 192.168.4.1:9000.
+ * the four ASCII bytes "HELO" to the camera's station IP on port 9000.
  */
 static void update_client_address(int sock, struct sockaddr_in *client_addr)
 {
@@ -377,75 +350,7 @@ static void udp_server_task(void *arg)
 
 esp_err_t wifi_stream_init(void)
 {
-    esp_err_t err = initialize_nvs();
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = esp_netif_init();
-
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        return err;
-    }
-
-    err = esp_event_loop_create_default();
-
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        return err;
-    }
-
-    if (esp_netif_create_default_wifi_ap() == NULL) {
-        ESP_LOGE(TAG, "Failed to create Wi-Fi AP interface");
-        return ESP_FAIL;
-    }
-
-    wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
-
-    err = esp_wifi_init(&config);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    wifi_config_t ap_config = {0};
-
-    snprintf((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid), "%s", WIFI_SSID);
-    snprintf((char *)ap_config.ap.password, sizeof(ap_config.ap.password), "%s", WIFI_PASSWORD);
-
-    ap_config.ap.ssid_len = strlen(WIFI_SSID);
-    ap_config.ap.channel = WIFI_CHANNEL;
-    ap_config.ap.max_connection = MAX_CONNECTIONS;
-    ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-
-    err = esp_wifi_set_mode(WIFI_MODE_AP);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = esp_wifi_start();
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    /*
-     * Disable Wi-Fi power saving for lower latency.
-     */
-    err = esp_wifi_set_ps(WIFI_PS_NONE);
-
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Could not disable Wi-Fi power saving");
-    }
-
-    err = initialize_frame_queues();
+    esp_err_t err = initialize_frame_queues();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize frame queue: %s", esp_err_to_name(err));
         return err;
@@ -466,10 +371,8 @@ esp_err_t wifi_stream_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Wi-Fi access point started");
-    ESP_LOGI(TAG, "SSID: %s", WIFI_SSID);
+    ESP_LOGI(TAG, "UDP frame stream ready");
     ESP_LOGI(TAG, "UDP port: %d", UDP_PORT);
-    ESP_LOGI(TAG, "Server IP: 192.168.4.1");
 
     return ESP_OK;
 }

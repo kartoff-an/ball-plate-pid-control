@@ -5,7 +5,6 @@ idf_component_register(
         camera_capture
         communication
         streaming
-        udp_preview
         wifi_station
         esp_timer
         esp_common

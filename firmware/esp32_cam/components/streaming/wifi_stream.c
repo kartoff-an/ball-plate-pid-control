@@ -312,7 +312,7 @@ static void detection_udp_task(void *task_context)
 
     while (true) {
         ball_detection_message_t detection_message;
-        if (xQueueReceive(pending_detection_queue, &detection_message, pdMS_TO_TICKS(100) != pdTRUE)) {
+        if (xQueueReceive(pending_detection_queue, &detection_message, pdMS_TO_TICKS(100)) != pdTRUE) {
             continue;
         }
 

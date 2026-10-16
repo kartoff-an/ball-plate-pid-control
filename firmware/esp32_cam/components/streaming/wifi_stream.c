@@ -51,6 +51,7 @@ static QueueHandle_t ready_frame_slots;
 static QueueHandle_t detection_queue;
 
 static uint8_t *frame_buffers[FRAME_BUFFER_COUNT];
+static uint32_t frame_sequences[FRAME_BUFFER_COUNT];
 
 /* Return a frame buffer to the available-buffer queue. */
 static void release_frame_slot(uint8_t slot)
@@ -112,7 +113,7 @@ static esp_err_t initialize_frame_queues(void)
 }
 
 /* Copy a frame into an available buffer without blocking. */
-esp_err_t wifi_stream_submit_frame(const uint8_t *pixels, size_t frame_length)
+esp_err_t wifi_stream_submit_frame(uint32_t sequence, const uint8_t *pixels, size_t frame_length)
 {
     if (pixels == NULL || frame_length != FRAME_SIZE) {
         return ESP_ERR_INVALID_ARG;
@@ -128,6 +129,7 @@ esp_err_t wifi_stream_submit_frame(const uint8_t *pixels, size_t frame_length)
     }
 
     memcpy(frame_buffers[slot], pixels, frame_length);
+    frame_sequences[slot] = sequence;
 
     if (xQueueSend(ready_frame_slots, &slot, 0) != pdTRUE) {
         release_frame_slot(slot);
@@ -310,8 +312,6 @@ static bool receive_latest_frame_slot(uint8_t *slot)
 /* Stream detections and frames to the registered PC. */
 static void stream_client_udp(int sock,struct sockaddr_in client_addr)
 {
-    uint32_t sequence = 0;
-
     while (true) {
         update_client_address(sock, &client_addr);
 
@@ -330,11 +330,10 @@ static void stream_client_udp(int sock,struct sockaddr_in client_addr)
             sock,
             &client_addr,
             frame_buffers[slot],
-            sequence
+            frame_sequences[slot]
         );
 
         release_frame_slot(slot);
-        sequence++;
 
         if (result < 0) {
             vTaskDelay(pdMS_TO_TICKS(10));

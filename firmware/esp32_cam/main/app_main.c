@@ -90,13 +90,14 @@ static void camera_task(void *pvParameters)
         }
 
         // transmit detection results over UDP
-        const esp_err_t detection_stream_result = wifi_stream_submit_detection(frame_number, &detection);
+        const uint32_t sequence = frame_number;
+        const esp_err_t detection_stream_result = wifi_stream_submit_detection(sequence, &detection);
         if (detection_stream_result != ESP_OK) {
             ESP_LOGW(TAG, "Could not queue detection: %s", esp_err_to_name(detection_stream_result));
         }
 
         // then transmit these frames over UDP for visual display in the GUI
-        const esp_err_t stream_result = wifi_stream_submit_frame(frame->buf, frame->len);
+        const esp_err_t stream_result = wifi_stream_submit_frame(sequence, frame->buf, frame->len);
         if (stream_result == ESP_ERR_TIMEOUT) {
             stream_dropped_since_report++;
         } else if (stream_result != ESP_OK) {

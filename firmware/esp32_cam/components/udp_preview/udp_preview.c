@@ -11,62 +11,64 @@
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 
-#define PREVIEW_PORT         9000
-#define PREVIEW_MESSAGE      "HELO"
-#define DISCOVERY_STACK_SIZE 3072
-#define DISCOVERY_PRIORITY   4
+#define REGISTRATION_PORT       9000
+#define REGISTRATION_MESSAGE    "HELO"
+#define REGISTRATION_STACK_SIZE 3072
+#define REGISTRATION_PRIORITY   4
 
 static const char *TAG = "UDP_PREVIEW";
 
-static void discovery_task(void *arg)
+static void registration_listener_task(void *task_context)
 {
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    (void)task_context;
 
-    if (sock < 0) {
+    int socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+    if (socket_fd < 0) {
         ESP_LOGE(TAG, "Failed to create UDP socket");
         vTaskDelete(NULL);
         return;
     }
 
-    struct sockaddr_in local_address = {
+    struct sockaddr_in local_socket_address = {
         .sin_family = AF_INET,
-        .sin_port = htons(PREVIEW_PORT),
+        .sin_port = htons(REGISTRATION_PORT),
         .sin_addr.s_addr = htonl(INADDR_ANY),
     };
 
-    if (bind(sock, (struct sockaddr *)&local_address, sizeof(local_address)) < 0) {
-        ESP_LOGE(TAG, "Failed to bind UDP port %d", PREVIEW_PORT);
-        close(sock);
+    if (bind(socket_fd, (struct sockaddr *)&local_socket_address, sizeof(local_socket_address)) < 0) {
+        ESP_LOGE(TAG, "Failed to bind UDP port %d", REGISTRATION_PORT);
+        close(socket_fd);
         vTaskDelete(NULL);
         return;
     }
 
-    ESP_LOGI(TAG, "Listening for PC registration on UDP port %d", PREVIEW_PORT);
+    ESP_LOGI(TAG, "Listening for PC registration on UDP port %d", REGISTRATION_PORT);
 
     while (true) {
-        char message[64];
+        char registration_datagram[64];
 
-        struct sockaddr_in source_address;
-        socklen_t source_length = sizeof(source_address);
+        struct sockaddr_in source_address = {0};
+        socklen_t source_address_length = sizeof(source_address);
 
-        int received = recvfrom(
-            sock,
-            message,
-            sizeof(message) - 1,
+        int received_byte_count = recvfrom(
+            socket_fd,
+            registration_datagram,
+            sizeof(registration_datagram) - 1,
             0,
             (struct sockaddr *)&source_address,
-            &source_length
+            &source_address_length
         );
 
-        if (received < 0) {
+        if (received_byte_count < 0) {
             ESP_LOGW(TAG, "UDP receive failed");
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
-        message[received] = '\0';
+        registration_datagram[received_byte_count] = '\0';
 
-        if (strcmp(message, PREVIEW_MESSAGE) != 0) {
+        if (strcmp(registration_datagram, REGISTRATION_MESSAGE) != 0) {
             continue;
         }
 
@@ -80,16 +82,16 @@ static void discovery_task(void *arg)
 esp_err_t udp_preview_init(void)
 {
     BaseType_t result = xTaskCreate(
-        discovery_task,
-        "udp_discovery",
-        DISCOVERY_STACK_SIZE,
+        registration_listener_task,
+        "registration_listener",
+        REGISTRATION_STACK_SIZE,
         NULL,
-        DISCOVERY_PRIORITY,
+        REGISTRATION_PRIORITY,
         NULL
     );
 
     if (result != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create discovery task");
+        ESP_LOGE(TAG, "Failed to create registration listener task");
         return ESP_ERR_NO_MEM;
     }
 

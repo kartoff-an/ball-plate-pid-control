@@ -21,15 +21,15 @@ typedef struct {
     size_t white_pixels;
 } ball_detection_result_t;
 
-esp_err_t detect_ball(
-    const uint8_t *gray_buf,
-    uint16_t width,
-    uint16_t height,
+esp_err_t ball_detection_detect(
+    const uint8_t *grayscale_pixels,
+    uint16_t image_width,
+    uint16_t image_height,
     uint8_t threshold,
     uint32_t min_area,
     uint32_t max_area,
-    uint8_t *binary_buf,
-    ball_detection_result_t *result
+    uint8_t *binary_pixels,
+    ball_detection_result_t *detection_result
 );
 
 #endif

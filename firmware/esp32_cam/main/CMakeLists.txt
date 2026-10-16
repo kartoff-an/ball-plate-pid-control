@@ -3,7 +3,6 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES
         camera_capture
-        communication
         streaming
         wifi_station
         esp_timer

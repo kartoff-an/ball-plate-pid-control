@@ -8,4 +8,5 @@ idf_component_register(
         wifi_station
         esp_timer
         esp_common
+        ball_detection
 )

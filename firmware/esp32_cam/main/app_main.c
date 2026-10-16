@@ -6,6 +6,7 @@
 #include "communication.h"
 #include "wifi_stream.h"
 #include "wifi_station.h"
+#include "ball_detection.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -16,9 +17,15 @@
 
 #define IMAGE_WIDTH         160
 #define IMAGE_HEIGHT        120
-#define FRAME_INTERVAL_MS     0;
+#define FRAME_SIZE          (IMAGE_WIDTH * IMAGE_HEIGHT)
+#define FRAME_INTERVAL_MS     0
+
+#define BALL_THRESHOLD      100
+#define BALL_MIN_AREA         8
+#define BALL_MAX_AREA       1000
 
 static const char *TAG = "BALL_PLATE_CAMERA";
+static uint8_t binary_buf[FRAME_SIZE];
 
 static void camera_task(void *pvParameters)
 {
@@ -63,6 +70,32 @@ static void camera_task(void *pvParameters)
 
         const image_stats_t stats = calculate_image_stats(frame->buf, actual_pixel_count);
 
+        // starting here, we perform the ball detection before we release the camera capture
+        ball_detection_result_t detection = {0};
+        const esp_err_t detection_result = detect_ball(
+            frame->buf,
+            width,
+            height,
+            BALL_THRESHOLD,
+            BALL_MIN_AREA,
+            BALL_MAX_AREA,
+            binary_buf,
+            &detection
+        );
+
+        if (detection_result != ESP_OK) {
+            ESP_LOGE(TAG, "Ball detection failed: %s", esp_err_to_name(detection_result));
+            release_capture_frame(frame);
+            continue;
+        }
+
+        // transmit detection results over UDP
+        const esp_err_t detection_stream_result = wifi_stream_submit_detection(frame_number, &detection);
+        if (detection_stream_result != ESP_OK) {
+            ESP_LOGW(TAG, "Could not queue detection: %s", esp_err_to_name(detection_stream_result));
+        }
+
+        // then transmit these frames over UDP for visual display in the GUI
         const esp_err_t stream_result = wifi_stream_submit_frame(frame->buf, frame->len);
         if (stream_result == ESP_ERR_TIMEOUT) {
             stream_dropped_since_report++;
@@ -106,6 +139,18 @@ static void camera_task(void *pvParameters)
                 fps_x10 / 10,
                 fps_x10 % 10,
                 stream_dropped_since_report
+            );
+            ESP_LOGI(
+                TAG,
+                "white_pixels=%" PRIu32
+                " ball=%d"
+                " center=(%u,%u)"
+                " area=%" PRIu32,
+                detection.white_pixels,
+                (int)detection.detected,
+                (unsigned)detection.center_x,
+                (unsigned)detection.center_y,
+                detection.area
             );
 
             frames_since_report = 0;

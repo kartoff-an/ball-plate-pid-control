@@ -18,44 +18,41 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
-#define UDP_PORT        9000
+#define UDP_PORT                9000
 
-#define FRAME_WIDTH     160
-#define FRAME_HEIGHT    120
-#define FRAME_SIZE      (FRAME_WIDTH * FRAME_HEIGHT)
+#define FRAME_WIDTH             160
+#define FRAME_HEIGHT            120
+#define FRAME_SIZE              (FRAME_WIDTH * FRAME_HEIGHT)
 
-/*
- * UDP packet protocol:
- *
- * Header: 16 bytes
- *   0-3:   ASCII "GRAY"
- *   4-7:   Frame sequence number (uint32, big-endian)
- *   8-11:  Total frame size (uint32, big-endian)
- *   12-13: Packet index (uint16, big-endian, starts at 0)
- *   14-15: Total packets (uint16, big-endian)
- *
- * Payload: up to 1200 bytes of grayscale pixels.
- *
- * FRAME_SIZE = 19200 bytes
- * PACKET_PAYLOAD_SIZE = 1200 bytes
- * PACKETS_PER_FRAME = 16
- */
-#define UDP_HEADER_SIZE         16
-#define UDP_PACKET_PAYLOAD_SIZE 1200
-#define UDP_PACKET_SIZE         (UDP_HEADER_SIZE + UDP_PACKET_PAYLOAD_SIZE)
+#define FRAME_HEADER_SIZE       16
+#define FRAME_CHUNK_SIZE        1200
+#define FRAME_PACKET_SIZE       (FRAME_HEADER_SIZE + FRAME_CHUNK_SIZE)
+#define PACKETS_PER_FRAME       ((FRAME_SIZE + FRAME_CHUNK_SIZE - 1) / FRAME_CHUNK_SIZE)
 
-#define PACKETS_PER_FRAME       ((FRAME_SIZE + UDP_PACKET_PAYLOAD_SIZE - 1) / UDP_PACKET_PAYLOAD_SIZE)
+#define DETECTION_PACKET_SIZE   17
 
-#define UDP_TASK_STACK_SIZE 6144
-#define UDP_TASK_PRIORITY   5
-#define FRAME_BUFFER_COUNT  2
-#define FRAME_QUEUE_WAIT_MS 20
+#define UDP_TASK_STACK_SIZE     6144
+#define UDP_TASK_PRIORITY       5
+#define FRAME_BUFFER_COUNT      2
+#define FRAME_QUEUE_WAIT_MS     20
 
 static const char *TAG = "WIFI_STREAM";
+
+typedef struct {
+    uint32_t sequence;
+    uint8_t detected;
+    uint16_t center_x;
+    uint16_t center_y;
+    uint32_t area;
+} detection_message_t;
+
 static QueueHandle_t free_frame_slots;
 static QueueHandle_t ready_frame_slots;
+static QueueHandle_t detection_queue;
+
 static uint8_t *frame_buffers[FRAME_BUFFER_COUNT];
 
+/* Return a frame buffer to the available-buffer queue. */
 static void release_frame_slot(uint8_t slot)
 {
     if (xQueueSend(free_frame_slots, &slot, 0) != pdTRUE) {
@@ -63,6 +60,7 @@ static void release_frame_slot(uint8_t slot)
     }
 }
 
+/* Release partially or fully initialized resources. */
 static void destroy_frame_queues(void)
 {
     if (free_frame_slots != NULL) {
@@ -75,17 +73,24 @@ static void destroy_frame_queues(void)
         ready_frame_slots = NULL;
     }
 
+    if (detection_queue != NULL) {
+        vQueueDelete(detection_queue);
+        detection_queue = NULL;
+    }
+
     for (uint8_t i = 0; i < FRAME_BUFFER_COUNT; i++) {
         heap_caps_free(frame_buffers[i]);
         frame_buffers[i] = NULL;
     }
 }
 
+/* Allocate frame buffers and initialize the queues. */
 static esp_err_t initialize_frame_queues(void)
 {
     free_frame_slots = xQueueCreate(FRAME_BUFFER_COUNT, sizeof(uint8_t));
     ready_frame_slots = xQueueCreate(FRAME_BUFFER_COUNT, sizeof(uint8_t));
-    if (free_frame_slots == NULL || ready_frame_slots == NULL) {
+    detection_queue = xQueueCreate(1, sizeof(detection_message_t));
+    if (free_frame_slots == NULL || ready_frame_slots == NULL || detection_queue == NULL) {
         destroy_frame_queues();
         return ESP_ERR_NO_MEM;
     }
@@ -106,6 +111,7 @@ static esp_err_t initialize_frame_queues(void)
     return ESP_OK;
 }
 
+/* Copy a frame into an available buffer without blocking. */
 esp_err_t wifi_stream_submit_frame(const uint8_t *pixels, size_t frame_length)
 {
     if (pixels == NULL || frame_length != FRAME_SIZE) {
@@ -131,52 +137,71 @@ esp_err_t wifi_stream_submit_frame(const uint8_t *pixels, size_t frame_length)
     return ESP_OK;
 }
 
-static size_t build_frame_packet(
-    uint8_t *packet,
-    const uint8_t *pixels,
-    size_t frame_length,
-    uint32_t sequence,
-    uint16_t packet_index)
+/* Keep only the latest pending detection result. */
+esp_err_t wifi_stream_submit_detection(uint32_t sequence, const ball_detection_result_t *result)
 {
-    size_t offset = (size_t)packet_index * UDP_PACKET_PAYLOAD_SIZE;
-    size_t payload_length = frame_length - offset;
-
-    if (payload_length > UDP_PACKET_PAYLOAD_SIZE) {
-        payload_length = UDP_PACKET_PAYLOAD_SIZE;
+    if (result == NULL) {
+        return ESP_ERR_INVALID_ARG;
     }
 
-    memcpy(packet, "GRAY", 4);
+    if (detection_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    uint32_t sequence_be = htonl(sequence);
-    uint32_t length_be = htonl((uint32_t)frame_length);
+    detection_message_t message = {
+        .sequence = sequence,
+        .detected = result->detected ? 1U : 0U,
+        .center_x = result->center_x,
+        .center_y = result->center_y,
+        .area = result->area
+    };
 
-    uint16_t index_be = htons(packet_index);
-    uint16_t count_be = htons(PACKETS_PER_FRAME);
-
-    memcpy(packet + 4, &sequence_be, sizeof(sequence_be));
-    memcpy(packet + 8, &length_be, sizeof(length_be));
-    memcpy(packet + 12, &index_be, sizeof(index_be));
-    memcpy(packet + 14, &count_be, sizeof(count_be));
-    memcpy(packet + UDP_HEADER_SIZE, pixels + offset, payload_length);
-
-    return UDP_HEADER_SIZE + payload_length;
+    BaseType_t queue_result = xQueueOverwrite(detection_queue, &message);
+    return queue_result == pdPASS ? ESP_OK : ESP_FAIL;
 }
 
-/*
- * UDP does not guarantee packet delivery. The receiver must
- * reconstruct frames using the sequence and packet indices.
- */
-static int send_frame_udp(
-    int sock,
-    const struct sockaddr_in *client_addr,
-    const uint8_t *pixels,
-    size_t frame_length,
-    uint32_t sequence)
-{
-    uint8_t packet[UDP_PACKET_SIZE];
 
-    for (uint16_t i = 0; i < PACKETS_PER_FRAME; i++) {
-        size_t packet_length = build_frame_packet(packet, pixels, frame_length, sequence, i);
+
+/*
+ * Send a grayscale frame as indexed UDP packets.
+ *
+ * Header:
+ *   0-3   "GRAY"
+ *   4-7   Frame sequence, uint32 big-endian
+ *   8-11  Frame size, uint32 big-endian
+ *   12-13 Packet index, uint16 big-endian
+ *   14-15 Total packets, uint16 big-endian
+ */
+static int send_frame_udp(int sock, const struct sockaddr_in *client_addr, const uint8_t *frame, uint32_t sequence)
+{
+    uint8_t packet[FRAME_PACKET_SIZE];
+    size_t offset = 0;
+    uint16_t packet_index = 0;
+
+    while (offset < FRAME_SIZE) {
+        size_t chunk_size = FRAME_SIZE - offset;
+
+        if (chunk_size > FRAME_CHUNK_SIZE) {
+            chunk_size = FRAME_CHUNK_SIZE;
+        }
+
+        memcpy(packet, "GRAY", 4);
+
+        uint32_t value32 = htonl(sequence);
+        memcpy(packet + 4, &value32, sizeof(value32));
+
+        value32 = htonl(FRAME_SIZE);
+        memcpy(packet + 8, &value32, sizeof(value32));
+
+        uint16_t value16 = htons(packet_index);
+        memcpy(packet + 12, &value16, sizeof(value16));
+
+        value16 = htons((uint16_t)PACKETS_PER_FRAME);
+        memcpy(packet + 14, &value16, sizeof(value16));
+
+        memcpy(packet + FRAME_HEADER_SIZE, frame + offset, chunk_size);
+
+        size_t packet_length = FRAME_HEADER_SIZE + chunk_size;
         ssize_t sent = sendto(
             sock,
             packet,
@@ -186,22 +211,59 @@ static int send_frame_udp(
             sizeof(*client_addr)
         );
 
-        if (sent < 0 || (size_t)sent != packet_length) {
-            ESP_LOGW(
-                TAG,
-                "UDP send failed: errno=%d frame=%" PRIu32
-                " packet=%u",
-                errno,
-                sequence,
-                (unsigned)i
-            );
-
+        if (sent < 0 || (size_t)sent != FRAME_HEADER_SIZE + chunk_size) {
+            ESP_LOGW(TAG, "Frame UDP send failed: errno=%d", errno);
             return -1;
         }
+
+        offset += chunk_size;
+        packet_index++;
     }
 
     return 0;
 }
+
+/* Send a ball-detection result as a single UDP packet. */
+static int send_detection_udp(int sock, const struct sockaddr_in *client_addr, const detection_message_t *message)
+{
+    uint8_t packet[DETECTION_PACKET_SIZE];
+
+    memcpy(packet, "BALL", 4);
+    packet[4] = (uint8_t)(message->sequence >> 24);
+    packet[5] = (uint8_t)(message->sequence >> 16);
+    packet[6] = (uint8_t)(message->sequence >> 8);
+    packet[7] = (uint8_t)message->sequence;
+
+    packet[8] = message->detected;
+
+    packet[9]  = (uint8_t)(message->center_x >> 8);
+    packet[10] = (uint8_t)message->center_x;
+
+    packet[11] = (uint8_t)(message->center_y >> 8);
+    packet[12] = (uint8_t)message->center_y;
+
+    packet[13] = (uint8_t)(message->area >> 24);
+    packet[14] = (uint8_t)(message->area >> 16);
+    packet[15] = (uint8_t)(message->area >> 8);
+    packet[16] = (uint8_t)message->area;
+
+    const ssize_t sent = sendto(
+        sock,
+        packet,
+        sizeof(packet),
+        0,
+        (const struct sockaddr *)client_addr,
+        sizeof(*client_addr)
+    );
+
+    if (sent != sizeof(packet)) {
+        ESP_LOGW(TAG, "Detection UDP send failed: errno=%d", errno);
+        return -1;
+    }
+
+    return 0;
+}
+
 
 /*
  * Accept HELLO datagrams during streaming.
@@ -226,16 +288,10 @@ static void update_client_address(int sock, struct sockaddr_in *client_addr)
 
     if (received == 4 && memcmp(buffer, "HELO", 4) == 0) {
         *client_addr = sender;
-
-        ESP_LOGI(
-            TAG,
-            "UDP client registered: %s:%u",
-            inet_ntoa(sender.sin_addr),
-            (unsigned)ntohs(sender.sin_port)
-        );
     }
 }
 
+/* Prefer the newest queued frame and release stale frames. */
 static bool receive_latest_frame_slot(uint8_t *slot)
 {
     if (xQueueReceive(ready_frame_slots, slot,pdMS_TO_TICKS(FRAME_QUEUE_WAIT_MS)) != pdTRUE) {
@@ -251,12 +307,19 @@ static bool receive_latest_frame_slot(uint8_t *slot)
     return true;
 }
 
+/* Stream detections and frames to the registered PC. */
 static void stream_client_udp(int sock,struct sockaddr_in client_addr)
 {
     uint32_t sequence = 0;
 
-    while (1) {
+    while (true) {
         update_client_address(sock, &client_addr);
+
+        detection_message_t detection_message;
+
+        if (xQueueReceive(detection_queue, &detection_message, 0) == pdPASS) {
+            send_detection_udp(sock, &client_addr, &detection_message);
+        }
 
         uint8_t slot;
         if (!receive_latest_frame_slot(&slot)) {
@@ -267,7 +330,6 @@ static void stream_client_udp(int sock,struct sockaddr_in client_addr)
             sock,
             &client_addr,
             frame_buffers[slot],
-            FRAME_SIZE,
             sequence
         );
 
@@ -284,7 +346,7 @@ static void stream_client_udp(int sock,struct sockaddr_in client_addr)
  * UDP server:
  * - Bind port 9000.
  * - Wait for a PC registration datagram.
- * - Stream camera frames to the sender's IP and port.
+ * - Stream camera frames and ball detection data to the sender's IP and port.
  */
 static void udp_server_task(void *arg)
 {
@@ -313,7 +375,7 @@ static void udp_server_task(void *arg)
 
     ESP_LOGI(TAG, "UDP server listening on port %d", UDP_PORT);
 
-    while (1) {
+    while (true) {
         uint8_t buffer[32];
         struct sockaddr_in client_addr = {0};
         socklen_t client_len = sizeof(client_addr);
@@ -371,8 +433,7 @@ esp_err_t wifi_stream_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "UDP frame stream ready");
-    ESP_LOGI(TAG, "UDP port: %d", UDP_PORT);
+    ESP_LOGI(TAG, "UDP stream initialized on port %d", UDP_PORT);
 
     return ESP_OK;
 }

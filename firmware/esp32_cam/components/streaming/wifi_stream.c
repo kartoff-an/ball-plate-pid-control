@@ -20,6 +20,9 @@
 
 #define UDP_PORT                9000
 
+#define S3_AP_IP                "192.168.4.1"
+#define S3_DETECTION_PORT       9002
+
 #define FRAME_WIDTH             160
 #define FRAME_HEIGHT            120
 #define FRAME_SIZE              (FRAME_WIDTH * FRAME_HEIGHT)
@@ -32,7 +35,8 @@
 #define DETECTION_PACKET_SIZE   17
 
 #define UDP_TASK_STACK_SIZE     6144
-#define UDP_TASK_PRIORITY       5
+#define UDP_DETECTION_TASK_PRIORITY       6
+#define UDP_PREVIEW_TASK_PRIORITY         4
 #define FRAME_BUFFER_COUNT      2
 #define FRAME_QUEUE_WAIT_MS     20
 
@@ -266,6 +270,39 @@ static int send_detection_udp(int sock, const struct sockaddr_in *client_addr, c
     return 0;
 }
 
+static void detection_udp_task(void *arg)
+{
+    (void)arg;
+
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "Detection socket creation failed: errno=%d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    struct sockaddr_in s3_addr = {0};
+    s3_addr.sin_family = AF_INET;
+    s3_addr.sin_port = htons(S3_DETECTION_PORT);
+
+    if (inet_pton(AF_INET, S3_AP_IP, &s3_addr.sin_addr) != 1) {
+        ESP_LOGE(TAG, "Invalid S3 AP IP address");
+        close(sock);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    while (true) {
+        detection_message_t message;
+        if (xQueueReceive(detection_queue, &message, pdMS_TO_TICKS(100) != pdTRUE)) {
+            continue;
+        }
+
+        if (send_detection_udp(sock, &s3_addr, &message)) {
+            ESP_LOGW(TAG, "Failed to send detection packet");
+        }
+    }
+}
 
 /*
  * Accept HELLO datagrams during streaming.
@@ -315,11 +352,11 @@ static void stream_client_udp(int sock,struct sockaddr_in client_addr)
     while (true) {
         update_client_address(sock, &client_addr);
 
-        detection_message_t detection_message;
+        // detection_message_t detection_message;
 
-        if (xQueueReceive(detection_queue, &detection_message, 0) == pdPASS) {
-            send_detection_udp(sock, &client_addr, &detection_message);
-        }
+        // if (xQueueReceive(detection_queue, &detection_message, 0) == pdPASS) {
+        //     send_detection_udp(sock, &client_addr, &detection_message);
+        // }
 
         uint8_t slot;
         if (!receive_latest_frame_slot(&slot)) {
@@ -417,12 +454,25 @@ esp_err_t wifi_stream_init(void)
         return err;
     }
 
+    BaseType_t detection_task_result = xTaskCreate(
+        detection_udp_task,
+        "udp-detection",
+        3072,
+        NULL,
+        UDP_DETECTION_TASK_PRIORITY,
+        NULL
+    );
+    if (detection_task_result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create detection UDP task");
+        return ESP_ERR_NO_MEM;
+    }
+
     BaseType_t task_result = xTaskCreate(
         udp_server_task,
         "udp_frame_server",
         UDP_TASK_STACK_SIZE,
         NULL,
-        UDP_TASK_PRIORITY,
+        UDP_PREVIEW_TASK_PRIORITY,
         NULL
     );
 

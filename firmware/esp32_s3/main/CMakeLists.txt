@@ -4,4 +4,5 @@ idf_component_register(
     REQUIRES
         wifi_ap
         esp_common
+        ball_udp_receiver
 )

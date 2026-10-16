@@ -1,5 +1,6 @@
 
 import argparse
+import math
 import socket
 import struct
 import threading
@@ -7,7 +8,7 @@ import time
 
 import numpy as np
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -23,23 +24,32 @@ WIDTH = 160
 HEIGHT = 120
 FRAME_SIZE = WIDTH * HEIGHT
 
-# Must match the ESP32 firmware.
 HEADER_SIZE = 16
 PAYLOAD_SIZE = 1200
 PACKETS_PER_FRAME = (FRAME_SIZE + PAYLOAD_SIZE - 1) // PAYLOAD_SIZE
 
+DETECTION_PACKET_SIZE = 17
+
+# GRAY: magic, sequence, frame length, packet index, packet count
+HEADER_FORMAT = "!4sIIHH"
+
+# BALL: sequence, detected, center_x, center_y, area
+DETECTION_FORMAT = "!IBHHI"
+
 GUI_FPS = 30
 SOCKET_TIMEOUT = 0.2
 MAX_PENDING_FRAMES = 4
+FRAME_EXPIRY_SECONDS = 0.25
 HELLO_INTERVAL = 1.0
 
-# Header:
-# 4 bytes magic
-# 4 bytes sequence
-# 4 bytes frame length
-# 2 bytes packet index
-# 2 bytes packet count
-HEADER_FORMAT = "!4sIIHH"
+
+def is_newer_sequence(sequence, reference):
+    """Compare wrapping uint32 sequence numbers."""
+    if reference < 0:
+        return True
+
+    delta = (sequence - reference) & 0xFFFFFFFF
+    return 0 < delta < 0x80000000
 
 
 class FrameFetcher(QThread):
@@ -55,18 +65,18 @@ class FrameFetcher(QThread):
 
         self.latest_frame = None
         self.latest_sequence = -1
+        self.latest_detection = None
 
         self.received_packets = 0
-        self.incomplete_frames = 0
         self.completed_frames = 0
+        self.incomplete_frames = 0
 
     def run(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock = sock
 
-        # Allow the PC receiver to be restarted without waiting for
-        # the previous socket's address state to expire.
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Allow quick receiver restarts.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
         sock.settimeout(SOCKET_TIMEOUT)
 
         try:
@@ -77,20 +87,19 @@ class FrameFetcher(QThread):
             self.sock = None
             return
 
-        # sequence -> {"pixels": bytearray, "received": set, "time": float}
         pending = {}
 
         last_hello = 0.0
-        last_packet_time = 0.0
+        last_packet_time = time.perf_counter()
+        last_status = ""
 
-        self.connection_changed.emit("Waiting for ESP32-CAM...")
+        self.connection_changed.emit(f"Listening on UDP port {PC_PORT}; registering camera...")
 
         try:
             while self.running:
                 now = time.perf_counter()
 
-                # Register periodically. This also helps recover if the
-                # initial registration datagram was lost.
+                # Register the PC's receiving address with the camera.
                 if now - last_hello >= HELLO_INTERVAL:
                     try:
                         sock.sendto(b"HELO", (self.camera_ip, ESP32_PORT))
@@ -102,22 +111,35 @@ class FrameFetcher(QThread):
                 try:
                     packet, sender = sock.recvfrom(2048)
                 except socket.timeout:
+                    self._expire_frames(pending)
                     continue
                 except OSError:
                     if self.running:
                         self.connection_changed.emit("UDP socket error")
                     break
 
+                if sender[0] != self.camera_ip:
+                    continue
+
                 last_packet_time = time.perf_counter()
 
-                if sender[0] != self.camera_ip:
+                # Detection datagrams share the same UDP port as frames.
+                if packet.startswith(b"BALL"):
+                    self._handle_detection(packet)
                     continue
 
                 if len(packet) < HEADER_SIZE:
                     continue
 
-                magic, sequence, length, packet_index, packet_count = (
-                    struct.unpack(HEADER_FORMAT, packet[:HEADER_SIZE])
+                (
+                    magic,
+                    sequence,
+                    length,
+                    packet_index,
+                    packet_count,
+                ) = struct.unpack(
+                    HEADER_FORMAT,
+                    packet[:HEADER_SIZE],
                 )
 
                 if magic != b"GRAY":
@@ -132,30 +154,24 @@ class FrameFetcher(QThread):
                 if packet_index >= PACKETS_PER_FRAME:
                     continue
 
-                payload = packet[HEADER_SIZE:]
-
                 offset = packet_index * PAYLOAD_SIZE
-                expected_length = min(PAYLOAD_SIZE, FRAME_SIZE - offset)
+                expected_length = min(PAYLOAD_SIZE,FRAME_SIZE - offset)
+                payload = packet[HEADER_SIZE:]
 
                 if len(payload) != expected_length:
                     continue
 
-                # Ignore frames that are not newer than the last displayed
-                # complete frame. Sequence numbers are uint32.
+                # Do not start reconstructing an already-obsolete frame.
                 with self.lock:
-                    last_sequence = self.latest_sequence
+                    latest_sequence = self.latest_sequence
 
-                if last_sequence >= 0:
-                    delta = (sequence - last_sequence) & 0xFFFFFFFF
-
-                    if delta == 0 or delta >= 0x80000000:
-                        continue
+                if not is_newer_sequence(sequence,latest_sequence):
+                    continue
 
                 frame = pending.get(sequence)
 
                 if frame is None:
-                    # Bound memory use and prevent old incomplete frames
-                    # from accumulating.
+                    # Bound memory use by discarding the oldest pending frame.
                     while len(pending) >= MAX_PENDING_FRAMES:
                         oldest_sequence = min(pending, key=lambda seq: pending[seq]["time"])
                         pending.pop(oldest_sequence)
@@ -168,68 +184,99 @@ class FrameFetcher(QThread):
                     }
                     pending[sequence] = frame
 
-                # Ignore duplicate datagrams.
+                # Ignore duplicate UDP packets.
                 if packet_index not in frame["received"]:
-                    frame["pixels"][
-                        offset:offset + expected_length
-                    ] = payload
-
+                    frame["pixels"][offset:offset + expected_length] = payload
                     frame["received"].add(packet_index)
                     self.received_packets += 1
 
-                # Publish only complete frames.
+                # Publish complete frames only.
                 if len(frame["received"]) == PACKETS_PER_FRAME:
                     completed = bytes(frame["pixels"])
                     pending.pop(sequence, None)
 
                     with self.lock:
-                        current = self.latest_sequence
-
-                        is_newer = (
-                            current < 0
-                            or 0 < ((sequence - current) & 0xFFFFFFFF)
-                            < 0x80000000
-                        )
-
-                        if is_newer:
+                        if is_newer_sequence(sequence,self.latest_sequence):
                             self.latest_frame = completed
                             self.latest_sequence = sequence
                             self.completed_frames += 1
 
-                # Expire incomplete frames after 250 ms.
+                self._expire_frames(pending)
+
                 now = time.perf_counter()
 
-                expired = [
-                    seq
-                    for seq, item in pending.items()
-                    if now - item["time"] > 0.25
-                ]
-
-                for seq in expired:
-                    pending.pop(seq, None)
-                    self.incomplete_frames += 1
-
-                # Update connection status if frames stop arriving.
                 if now - last_packet_time > 2.0:
-                    self.connection_changed.emit(
-                        "Waiting for image packets..."
-                    )
+                    status = "Waiting for image packets..."
+                else:
+                    status = "Receiving UDP frames"
+
+                if status != last_status:
+                    self.connection_changed.emit(status)
+                    last_status = status
 
         finally:
             sock.close()
             self.sock = None
 
+    def _handle_detection(self, packet):
+        if len(packet) != DETECTION_PACKET_SIZE:
+            return
+
+        (
+            sequence,
+            detected,
+            center_x,
+            center_y,
+            area,
+        ) = struct.unpack(
+            DETECTION_FORMAT,
+            packet[4:],
+        )
+
+        if detected not in (0, 1):
+            return
+
+        # Reject detections that are older than the displayed frame.
+        with self.lock:
+            if (
+                self.latest_sequence >= 0
+                and not is_newer_sequence(sequence, self.latest_sequence)
+                and sequence != self.latest_sequence
+            ):
+                return
+
+            self.latest_detection = {
+                "sequence": sequence,
+                "detected": bool(detected),
+                "center_x": center_x,
+                "center_y": center_y,
+                "area": area,
+            }
+
+    def _expire_frames(self, pending):
+        now = time.perf_counter()
+
+        expired = [
+            sequence
+            for sequence, frame in pending.items()
+            if now - frame["time"] > FRAME_EXPIRY_SECONDS
+        ]
+
+        for sequence in expired:
+            pending.pop(sequence, None)
+            self.incomplete_frames += 1
+
     def get_latest_frame(self):
         with self.lock:
             return self.latest_frame, self.latest_sequence
 
+    def get_latest_detection(self):
+        with self.lock:
+            return self.latest_detection
+
     def get_statistics(self):
         with self.lock:
-            return (
-                self.received_packets,
-                self.completed_frames,
-                self.incomplete_frames,
-            )
+            return (self.received_packets, self.completed_frames, self.incomplete_frames)
 
     def stop(self):
         self.running = False
@@ -241,7 +288,8 @@ class FrameFetcher(QThread):
             except OSError:
                 pass
 
-        self.wait(2000)
+        if self.isRunning():
+            self.wait(2000)
 
 
 class CameraWindow(QMainWindow):
@@ -296,14 +344,38 @@ class CameraWindow(QMainWindow):
             dtype=np.uint8,
         ).reshape(HEIGHT, WIDTH)
 
-        # Copy pixels so the QImage owns independent image data.
-        image = QImage(
-            pixels.data,
-            WIDTH,
-            HEIGHT,
-            WIDTH,
-            QImage.Format.Format_Grayscale8,
-        ).copy()
+        image = QImage(pixels.data, WIDTH, HEIGHT, WIDTH, QImage.Format.Format_Grayscale8).copy()
+
+        detection = self.fetcher.get_latest_detection()
+
+        # Draw only when detection and image refer to the same frame.
+        if (
+            detection is not None
+            and detection["sequence"] == sequence
+            and detection["detected"]
+            and detection["area"] > 0
+        ):
+            center_x = detection["center_x"]
+            center_y = detection["center_y"]
+
+            radius = max(1, round(math.sqrt(detection["area"] / math.pi)))
+
+            if (0 <= center_x < WIDTH and 0 <= center_y < HEIGHT):
+                painter = QPainter(image)
+
+                pen = QPen(QColor(255, 0, 0))
+                pen.setWidth(1)
+
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(
+                    center_x - radius,
+                    center_y - radius,
+                    radius * 2,
+                    radius * 2,
+                )
+
+                painter.end()
 
         pixmap = QPixmap.fromImage(image).scaled(
             self.image_label.size(),
@@ -321,11 +393,20 @@ class CameraWindow(QMainWindow):
             self.displayed_frames = 0
             self.fps_start = time.perf_counter()
 
-            packets, completed, incomplete = (self.fetcher.get_statistics())
+            packets, completed, incomplete = self.fetcher.get_statistics()
+            print(f"Frame sequence: {sequence} --> {detection}")
+            detection_text = (
+                "Ball detected"
+                if detection is not None
+                and detection["sequence"] == sequence
+                and detection["detected"]
+                else "No matched detection"
+            )
 
             self.status_label.setText(
                 f"UDP | Display: {self.display_fps:.1f} FPS "
                 f"| Frame: {sequence} "
+                f"| {detection_text} "
                 f"| Complete: {completed} "
                 f"| Incomplete: {incomplete}"
             )
@@ -337,11 +418,17 @@ class CameraWindow(QMainWindow):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Display UDP grayscale frames from the ESP32-CAM.")
+    parser = argparse.ArgumentParser(
+        description=("Display UDP grayscale frames and ball detection from the ESP32-CAM.")
+    )
+
     parser.add_argument(
         "--camera-ip",
         required=True,
-        help="ESP32-CAM station IP shown in its serial log (not the hub IP).",
+        help=(
+            "ESP32-CAM station IP shown in its serial log, "
+            "not the access-point IP."
+        ),
     )
     args = parser.parse_args()
 

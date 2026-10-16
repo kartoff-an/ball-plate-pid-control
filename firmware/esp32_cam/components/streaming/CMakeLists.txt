@@ -7,4 +7,5 @@ idf_component_register(
         lwip
         freertos
         log
+        ball_detection
 )

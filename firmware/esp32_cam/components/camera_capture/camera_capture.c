@@ -31,7 +31,7 @@ static const char *TAG = "CAMERA_CAPTURE";
 
 esp_err_t camera_capture_init(void)
 {
-    const camera_config_t config = {
+    const camera_config_t camera_config = {
         .pin_pwdn = CAM_PIN_PWDN,
         .pin_reset = CAM_PIN_RESET,
         .pin_xclk = CAM_PIN_XCLK,
@@ -64,11 +64,11 @@ esp_err_t camera_capture_init(void)
         .grab_mode = CAMERA_GRAB_LATEST,
     };
 
-    const esp_err_t error = esp_camera_init(&config);
+    const esp_err_t initialization_result = esp_camera_init(&camera_config);
 
-    if (error != ESP_OK) {
-        ESP_LOGE(TAG, "Camera initialization failed: %s", esp_err_to_name(error));
-        return error;
+    if (initialization_result != ESP_OK) {
+        ESP_LOGE(TAG, "Camera initialization failed: %s", esp_err_to_name(initialization_result));
+        return initialization_result;
     }
 
     ESP_LOGI(TAG, "Camera initialized");
@@ -76,51 +76,53 @@ esp_err_t camera_capture_init(void)
     return ESP_OK;
 }
 
-camera_fb_t *get_capture_frame(void)
+camera_fb_t *camera_capture_get_frame(void)
 {
     return esp_camera_fb_get();
 }
 
-void release_capture_frame(camera_fb_t *frame)
+void camera_capture_release_frame(camera_fb_t *frame_buffer)
 {
-    if (frame != NULL) {
-        esp_camera_fb_return(frame);
+    if (frame_buffer != NULL) {
+        esp_camera_fb_return(frame_buffer);
     }
 }
 
-image_stats_t calculate_image_stats(const uint8_t *gray_buf, size_t pixel_count)
+camera_image_stats_t camera_capture_get_image_stats(
+    const uint8_t *grayscale_pixels,
+    size_t pixel_count)
 {
-    image_stats_t stats = {
+    camera_image_stats_t image_stats = {
         .min = 255,
         .max = 0,
         .mean = 0,
     };
 
-    if (gray_buf == NULL || pixel_count == 0) {
-        return stats;
+    if (grayscale_pixels == NULL || pixel_count == 0) {
+        return image_stats;
     }
 
     uint64_t sum = 0;
-    uint8_t min_val = 255;
-    uint8_t max_val = 0;
+    uint8_t min_intensity = 255;
+    uint8_t max_intensity = 0;
 
     for (size_t i = 0; i < pixel_count; ++i) {
-        const uint8_t gray = gray_buf[i];
+        const uint8_t pixel_intensity = grayscale_pixels[i];
 
-        if (gray < min_val) {
-            min_val = gray;
+        if (pixel_intensity < min_intensity) {
+            min_intensity = pixel_intensity;
         }
 
-        if (gray > max_val) {
-            max_val = gray;
+        if (pixel_intensity > max_intensity) {
+            max_intensity = pixel_intensity;
         }
 
-        sum += gray;
+        sum += pixel_intensity;
     }
 
-    stats.min = min_val;
-    stats.max = max_val;
-    stats.mean = (uint8_t)(sum / pixel_count);
+    image_stats.min = min_intensity;
+    image_stats.max = max_intensity;
+    image_stats.mean = (uint8_t)(sum / pixel_count);
 
-    return stats;
+    return image_stats;
 }

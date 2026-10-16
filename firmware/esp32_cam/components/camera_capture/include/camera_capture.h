@@ -11,14 +11,17 @@ typedef struct {
     uint8_t min;
     uint8_t max;
     uint8_t mean;
-} image_stats_t;
+} camera_image_stats_t;
 
 esp_err_t camera_capture_init(void);
 
-camera_fb_t *get_capture_frame(void);
+camera_fb_t *camera_capture_get_frame(void);
 
-void release_capture_frame(camera_fb_t *frame);
+void camera_capture_release_frame(camera_fb_t *frame_buffer);
 
-image_stats_t calculate_image_stats(const uint8_t *gray_buf, size_t pixel_count);
+camera_image_stats_t camera_capture_get_image_stats(
+    const uint8_t *grayscale_pixels,
+    size_t pixel_count
+);
 
 #endif

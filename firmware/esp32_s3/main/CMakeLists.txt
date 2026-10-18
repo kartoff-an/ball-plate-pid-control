@@ -1,8 +1,8 @@
 idf_component_register(
-    SRCS "app_main.c"
-    INCLUDE_DIRS "."
+    SRCS "ball_receiver.c" "app_main.c"
+    INCLUDE_DIRS "include"
     REQUIRES
         wifi_ap
         esp_common
-        ball_udp_receiver
+        esp_timer
 )

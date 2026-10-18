@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "app_main.c"
-    INCLUDE_DIRS "."
+    SRCS "ball_now.c" "app_main.c"
+    INCLUDE_DIRS "include"
     REQUIRES
         camera_capture
         streaming

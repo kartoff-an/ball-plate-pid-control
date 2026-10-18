@@ -20,9 +20,6 @@
 
 #define FRAME_STREAM_UDP_PORT   9000
 
-#define BALL_PLATE_AP_IP        "192.168.4.1"
-#define BALL_DETECTION_UDP_PORT  9002
-
 #define FRAME_WIDTH             160
 #define FRAME_HEIGHT            120
 #define FRAME_SIZE              (FRAME_WIDTH * FRAME_HEIGHT)
@@ -32,28 +29,15 @@
 #define FRAME_PACKET_SIZE       (FRAME_HEADER_SIZE + FRAME_CHUNK_SIZE)
 #define PACKETS_PER_FRAME       ((FRAME_SIZE + FRAME_CHUNK_SIZE - 1) / FRAME_CHUNK_SIZE)
 
-#define BALL_DETECTION_PACKET_SIZE 17
-
 #define FRAME_STREAM_TASK_STACK_SIZE 6144
-#define BALL_DETECTION_TASK_STACK_SIZE 3072
-#define BALL_DETECTION_TASK_PRIORITY 6
 #define FRAME_STREAM_TASK_PRIORITY   4
 #define FRAME_BUFFER_COUNT      2
 #define FRAME_QUEUE_WAIT_MS     20
 
 static const char *TAG = "WIFI_STREAM";
 
-typedef struct {
-    uint32_t frame_sequence;
-    uint8_t is_detected;
-    uint16_t center_x;
-    uint16_t center_y;
-    uint32_t ball_area;
-} ball_detection_message_t;
-
 static QueueHandle_t available_frame_slots;
 static QueueHandle_t queued_frame_slots;
-static QueueHandle_t pending_detection_queue;
 
 static uint8_t *grayscale_frame_buffers[FRAME_BUFFER_COUNT];
 static uint32_t frame_sequences[FRAME_BUFFER_COUNT];
@@ -79,11 +63,6 @@ static void destroy_frame_queues(void)
         queued_frame_slots = NULL;
     }
 
-    if (pending_detection_queue != NULL) {
-        vQueueDelete(pending_detection_queue);
-        pending_detection_queue = NULL;
-    }
-
     for (uint8_t i = 0; i < FRAME_BUFFER_COUNT; i++) {
         heap_caps_free(grayscale_frame_buffers[i]);
         grayscale_frame_buffers[i] = NULL;
@@ -95,17 +74,13 @@ static esp_err_t initialize_frame_queues(void)
 {
     available_frame_slots = xQueueCreate(FRAME_BUFFER_COUNT, sizeof(uint8_t));
     queued_frame_slots = xQueueCreate(FRAME_BUFFER_COUNT, sizeof(uint8_t));
-    pending_detection_queue = xQueueCreate(1, sizeof(ball_detection_message_t));
-    if (available_frame_slots == NULL ||
-        queued_frame_slots == NULL ||
-        pending_detection_queue == NULL) {
+    if (available_frame_slots == NULL || queued_frame_slots == NULL) {
         destroy_frame_queues();
         return ESP_ERR_NO_MEM;
     }
 
     for (uint8_t i = 0; i < FRAME_BUFFER_COUNT; i++) {
-        grayscale_frame_buffers[i] =
-            heap_caps_malloc(FRAME_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        grayscale_frame_buffers[i] = heap_caps_malloc(FRAME_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (grayscale_frame_buffers[i] == NULL) {
             destroy_frame_queues();
             return ESP_ERR_NO_MEM;
@@ -149,30 +124,6 @@ esp_err_t wifi_stream_submit_frame(
 
     return ESP_OK;
 }
-
-/* Keep only the latest pending detection result. */
-esp_err_t wifi_stream_submit_detection(uint32_t frame_sequence, const ball_detection_result_t *detection_result)
-{
-    if (detection_result == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (pending_detection_queue == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    ball_detection_message_t detection_message = {
-        .frame_sequence = frame_sequence,
-        .is_detected = detection_result->detected ? 1U : 0U,
-        .center_x = detection_result->center_x,
-        .center_y = detection_result->center_y,
-        .ball_area = detection_result->area
-    };
-
-    BaseType_t queue_result = xQueueOverwrite(pending_detection_queue, &detection_message);
-    return queue_result == pdPASS ? ESP_OK : ESP_FAIL;
-}
-
 
 
 /*
@@ -233,7 +184,7 @@ static int send_frame_udp(
         );
 
         if (sent_byte_count < 0 || (size_t)sent_byte_count != udp_packet_size) {
-            ESP_LOGW(TAG, "Frame UDP send failed: errno=%d", errno);
+            ESP_LOGW(TAG, "Frame UDP send failed: errno=%d (%s)", errno, strerror(errno));
             return -1;
         }
 
@@ -242,84 +193,6 @@ static int send_frame_udp(
     }
 
     return 0;
-}
-
-/* Send a ball-detection result as a single UDP packet. */
-static int send_detection_udp(
-    int socket_fd,
-    const struct sockaddr_in *destination_address,
-    const ball_detection_message_t *detection_message)
-{
-    uint8_t detection_packet[BALL_DETECTION_PACKET_SIZE];
-
-    memcpy(detection_packet, "BALL", 4);
-    detection_packet[4] = (uint8_t)(detection_message->frame_sequence >> 24);
-    detection_packet[5] = (uint8_t)(detection_message->frame_sequence >> 16);
-    detection_packet[6] = (uint8_t)(detection_message->frame_sequence >> 8);
-    detection_packet[7] = (uint8_t)detection_message->frame_sequence;
-
-    detection_packet[8] = detection_message->is_detected;
-
-    detection_packet[9]  = (uint8_t)(detection_message->center_x >> 8);
-    detection_packet[10] = (uint8_t)detection_message->center_x;
-
-    detection_packet[11] = (uint8_t)(detection_message->center_y >> 8);
-    detection_packet[12] = (uint8_t)detection_message->center_y;
-
-    detection_packet[13] = (uint8_t)(detection_message->ball_area >> 24);
-    detection_packet[14] = (uint8_t)(detection_message->ball_area >> 16);
-    detection_packet[15] = (uint8_t)(detection_message->ball_area >> 8);
-    detection_packet[16] = (uint8_t)detection_message->ball_area;
-
-    const ssize_t sent_byte_count = sendto(
-        socket_fd,
-        detection_packet,
-        sizeof(detection_packet),
-        0,
-        (const struct sockaddr *)destination_address,
-        sizeof(*destination_address)
-    );
-
-    if (sent_byte_count != sizeof(detection_packet)) {
-        ESP_LOGW(TAG, "Detection UDP send failed: errno=%d", errno);
-        return -1;
-    }
-
-    return 0;
-}
-
-static void detection_udp_task(void *task_context)
-{
-    (void)task_context;
-
-    int socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (socket_fd < 0) {
-        ESP_LOGE(TAG, "Detection socket creation failed: errno=%d", errno);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    struct sockaddr_in detection_server_addr = {0};
-    detection_server_addr.sin_family = AF_INET;
-    detection_server_addr.sin_port = htons(BALL_DETECTION_UDP_PORT);
-
-    if (inet_pton(AF_INET, BALL_PLATE_AP_IP, &detection_server_addr.sin_addr) != 1) {
-        ESP_LOGE(TAG, "Invalid ball plate access point IP address");
-        close(socket_fd);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    while (true) {
-        ball_detection_message_t detection_message;
-        if (xQueueReceive(pending_detection_queue, &detection_message, pdMS_TO_TICKS(100)) != pdTRUE) {
-            continue;
-        }
-
-        if (send_detection_udp(socket_fd, &detection_server_addr, &detection_message)) {
-            ESP_LOGW(TAG, "Failed to send detection packet");
-        }
-    }
 }
 
 /*
@@ -473,18 +346,6 @@ esp_err_t wifi_stream_init(void)
         return err;
     }
 
-    BaseType_t detection_task_result = xTaskCreate(
-        detection_udp_task,
-        "detection_udp",
-        BALL_DETECTION_TASK_STACK_SIZE,
-        NULL,
-        BALL_DETECTION_TASK_PRIORITY,
-        NULL
-    );
-    if (detection_task_result != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create detection UDP task");
-        return ESP_ERR_NO_MEM;
-    }
 
     BaseType_t frame_server_task_result = xTaskCreate(
         frame_stream_server_task,

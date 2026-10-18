@@ -91,13 +91,6 @@ static void camera_frame_task(void *task_context)
             continue;
         }
 
-        // transmit detection results over UDP
-        const esp_err_t detection_stream_result =
-            wifi_stream_submit_detection(frame_seq, &detection);
-        if (detection_stream_result != ESP_OK) {
-            ESP_LOGW(TAG, "Could not queue detection: %s", esp_err_to_name(detection_stream_result));
-        }
-
         // then transmit these frames over UDP for visual display in the GUI
         const esp_err_t frame_stream_result = wifi_stream_submit_frame(
             frame_seq,
@@ -194,12 +187,4 @@ void app_main(void)
     }
 
     ESP_LOGI(TAG, "Camera frame capture and UDP streaming started");
-
-    // COMMUNICATION
-
-    // ESP_ERROR_CHECK(communication_init(NULL));
-    // BaseType_t comm_result = xTaskCreate(communication_test_task, "communication_test", 3072, NULL, 4, NULL);
-    // if (comm_result != pdPASS) {
-    //     ESP_LOGE(TAG, "Failed to create commmunication task");
-    // }
 }

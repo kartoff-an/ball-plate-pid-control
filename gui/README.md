@@ -12,12 +12,12 @@ The current focus is building the interface and validating its layout and intera
 
 * [x] Initial project structure
 * [ ] Main window and layout
-* [ ] Camera preview placeholder
-* [ ] Ball position and target displays
+* [x] Camera preview placeholder
+* [x] Ball position and target displays
 * [ ] X/Y setpoint controls
 * [ ] Dual-axis PID tuning panel
 * [ ] System control buttons
-* [ ] Telemetry and plotting placeholders
+* [x] Telemetry and plotting placeholders
 * [ ] UI interaction testing
 * [ ] ESP32 and camera integration
 
@@ -38,9 +38,16 @@ See [`../docs/development/gui-checklist.md`](../docs/development/gui-checklist.m
 ```text
 gui/
 ├── src/
-│   └── __init__.py
+│   ├── __init__.py
 │   ├── main.py
-│   └── main_window.py
+│   ├── main_window.py
+│   ├── mock_data.py
+│   ├── monitoring_demo.py
+│   └── widgets/
+│       ├── __init__.py
+│       ├── camera_preview.py
+│       ├── telemetry.py
+│       └── plots.py
 ├── tests/
 ├── requirements.txt
 └── README.md
@@ -50,6 +57,11 @@ gui/
 
 * `main.py` — Application entry point. Creates the `QApplication`, initializes the main window, and starts the event loop.
 * `main_window.py` — Main window, layouts, panels, controls, and UI state.
+* `widgets/camera_preview.py` — Camera feed with ball and target markers in image pixels.
+* `widgets/telemetry.py` — Measured and target position, tracking error, servo angles, and elapsed time.
+* `widgets/plots.py` — Scrolling plots of position versus setpoint and X/Y tracking error.
+* `mock_data.py` — Mock camera frames and telemetry used until the hardware is integrated.
+* `monitoring_demo.py` — Runs the camera preview, telemetry, and plots together on mock data.
 * `tests/` — Automated tests for interface behavior and input validation.
 * `requirements.txt` — Python package dependencies.
 
@@ -91,6 +103,18 @@ python -m main
 ```
 
 Run these commands from the `gui/` directory.
+
+### 5. Preview the monitoring panels (optional)
+
+The camera preview, telemetry, and plot panels can be run on mock data without the main window:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m monitoring_demo          # all panels together
+python -m widgets.camera_preview   # or one panel at a time
+python -m widgets.telemetry
+python -m widgets.plots
+```
 
 ## Interface Components
 

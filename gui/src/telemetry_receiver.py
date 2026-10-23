@@ -1,7 +1,8 @@
 """Receives live telemetry broadcast by the ESP32-S3 over UDP.
 
 The firmware (firmware/esp32_s3/main/telemetry.c) broadcasts one JSON object
-per datagram to 192.168.4.255:9002 while it has a fresh ball measurement. It
+per datagram to 192.168.4.255 on config.PC_TELEMETRY_PORT while it has a fresh
+ball measurement. It
 sends nothing when the ball is missing, so "no data" is detected from the time
 since the last packet, not from the packet contents.
 
@@ -19,8 +20,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 
-TELEMETRY_PORT = 9002
-STALE_TIMEOUT_S = 1.0
+import config
 
 # The firmware's send buffer is 512 bytes, so anything larger is not ours.
 MAX_DATAGRAM_BYTES = 2048
@@ -37,8 +37,8 @@ log = logging.getLogger(__name__)
 class TelemetrySample:
     """One validated telemetry packet.
 
-    Ball coordinates and errors are camera pixels (160x120 frame). Outputs and
-    servo commands are microseconds. received_at is time.monotonic() on this
+    Errors are plate millimeters (target minus measured). Outputs and servo
+    commands are microseconds. received_at is time.monotonic() on this
     computer, since the payload carries no timestamp.
     """
 
@@ -47,8 +47,8 @@ class TelemetrySample:
     ball_x: int
     ball_y: int
     measurement_age_ms: int
-    error_x_px: float
-    error_y_px: float
+    error_x_mm: float
+    error_y_mm: float
     output_x_us: float
     output_y_us: float
     servo_x_us: int
@@ -72,8 +72,8 @@ _FIELDS = {
     "ball_x": _INT,
     "ball_y": _INT,
     "measurement_age_ms": _INT,
-    "error_x_px": _NUMBER,
-    "error_y_px": _NUMBER,
+    "error_x_mm": _NUMBER,
+    "error_y_mm": _NUMBER,
     "output_x_us": _NUMBER,
     "output_y_us": _NUMBER,
     "servo_x_us": _INT,
@@ -180,7 +180,7 @@ class LinkState(Enum):
 class LinkMonitor:
     """Tracks data freshness from local receive times."""
 
-    def __init__(self, stale_timeout=STALE_TIMEOUT_S):
+    def __init__(self, stale_timeout=config.TELEMETRY_STALE_TIMEOUT_S):
         self.stale_timeout = stale_timeout
         self.last_received = None
 
@@ -233,7 +233,7 @@ class TelemetryReceiver:
     thread. on_failed(message) is called if the socket stops working.
     """
 
-    def __init__(self, on_sample, on_rejected=None, on_failed=None, port=TELEMETRY_PORT, host=""):
+    def __init__(self, on_sample, on_rejected=None, on_failed=None, port=config.PC_TELEMETRY_PORT, host=""):
         self._on_sample = on_sample
         self._on_rejected = on_rejected
         self._on_failed = on_failed

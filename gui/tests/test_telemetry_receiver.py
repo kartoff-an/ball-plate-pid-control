@@ -25,7 +25,7 @@ from telemetry_receiver import (  # noqa: E402
 # Exactly the format telemetry.c produces.
 FIRMWARE_PACKET = (
     b'{"type":"telemetry","sequence":42,"ball_detected":true,"ball_x":80,"ball_y":60,'
-    b'"measurement_age_ms":12,"error_x_px":-3.50,"error_y_px":7.00,"output_x_us":-1.75,'
+    b'"measurement_age_ms":12,"error_x_mm":-3.50,"error_y_mm":7.00,"output_x_us":-1.75,'
     b'"output_y_us":3.50,"servo_x_us":1498,"servo_y_us":1503,"controller_enabled":false}'
 )
 
@@ -51,15 +51,15 @@ class ParseTelemetryTests(unittest.TestCase):
         self.assertIs(sample.ball_detected, True)
         self.assertEqual((sample.ball_x, sample.ball_y), (80, 60))
         self.assertEqual(sample.measurement_age_ms, 12)
-        self.assertEqual((sample.error_x_px, sample.error_y_px), (-3.5, 7.0))
+        self.assertEqual((sample.error_x_mm, sample.error_y_mm), (-3.5, 7.0))
         self.assertEqual((sample.output_x_us, sample.output_y_us), (-1.75, 3.5))
         self.assertEqual((sample.servo_x_us, sample.servo_y_us), (1498, 1503))
         self.assertIs(sample.controller_enabled, False)
         self.assertEqual(sample.received_at, 12.5)
 
     def test_integer_valued_numbers_become_floats(self):
-        sample = parse_telemetry(packet(error_x_px=0, output_y_us=5), received_at=0)
-        self.assertIsInstance(sample.error_x_px, float)
+        sample = parse_telemetry(packet(error_x_mm=0, output_y_us=5), received_at=0)
+        self.assertIsInstance(sample.error_x_mm, float)
         self.assertIsInstance(sample.output_y_us, float)
 
     def test_ignores_unknown_extra_fields(self):
@@ -92,15 +92,15 @@ class ParseTelemetryTests(unittest.TestCase):
 
     def test_rejects_missing_fields(self):
         self.assertRejected(packet(servo_y_us=_REMOVE), "missing fields: servo_y_us")
-        # The issue text names these error_x/error_y, but the firmware sends *_px.
+        # The firmware sends *_mm, not bare error_x/error_y.
         self.assertRejected(
-            packet(error_x_px=_REMOVE, error_y_px=_REMOVE, error_x=1.0, error_y=1.0),
-            "missing fields: error_x_px, error_y_px",
+            packet(error_x_mm=_REMOVE, error_y_mm=_REMOVE, error_x=1.0, error_y=1.0),
+            "missing fields: error_x_mm, error_y_mm",
         )
 
     def test_rejects_numbers_sent_as_strings(self):
         self.assertRejected(packet(ball_x="80"), "ball_x must be a integer")
-        self.assertRejected(packet(error_x_px="1.00"), "error_x_px must be a number")
+        self.assertRejected(packet(error_x_mm="1.00"), "error_x_mm must be a number")
 
     def test_rejects_wrong_scalar_types(self):
         self.assertRejected(packet(ball_detected=1), "ball_detected must be a boolean")
@@ -114,7 +114,7 @@ class ParseTelemetryTests(unittest.TestCase):
         self.assertRejected(packet(sequence=2**32), "sequence exceeds 32 bits")
 
     def test_rejects_non_finite_numbers(self):
-        datagram = FIRMWARE_PACKET.replace(b'"error_x_px":-3.50', b'"error_x_px":NaN')
+        datagram = FIRMWARE_PACKET.replace(b'"error_x_mm":-3.50', b'"error_x_mm":NaN')
         self.assertRejected(datagram, "non-finite")
 
     def test_rejects_oversized_datagram(self):

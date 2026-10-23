@@ -13,8 +13,8 @@ import random
 import socket
 import time
 
+import config
 from mock_data import MockCamera, MockTelemetry
-from telemetry_receiver import TELEMETRY_PORT
 
 
 def _bool(value):
@@ -26,7 +26,7 @@ def to_firmware_json(s):
     return (
         f'{{"type":"telemetry","sequence":{s.sequence},"ball_detected":{_bool(s.ball_detected)},'
         f'"ball_x":{s.ball_x},"ball_y":{s.ball_y},"measurement_age_ms":{s.measurement_age_ms},'
-        f'"error_x_px":{s.error_x_px:.2f},"error_y_px":{s.error_y_px:.2f},'
+        f'"error_x_mm":{s.error_x_mm:.2f},"error_y_mm":{s.error_y_mm:.2f},'
         f'"output_x_us":{s.output_x_us:.2f},"output_y_us":{s.output_y_us:.2f},'
         f'"servo_x_us":{s.servo_x_us},"servo_y_us":{s.servo_y_us},'
         f'"controller_enabled":{_bool(s.controller_enabled)}}}'
@@ -36,7 +36,7 @@ def to_firmware_json(s):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="127.0.0.1", help="destination address (default: this computer)")
-    parser.add_argument("--port", type=int, default=TELEMETRY_PORT)
+    parser.add_argument("--port", type=int, default=config.PC_TELEMETRY_PORT)
     parser.add_argument("--rate", type=float, default=20.0, help="packets per second (firmware max is 20)")
     parser.add_argument("--drop", type=float, default=0.0, help="fraction of packets to skip, 0-1")
     parser.add_argument("--pause-every", type=float, default=0.0, help="seconds between 2 s pauses (0 = never)")

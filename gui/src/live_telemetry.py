@@ -2,7 +2,9 @@
 
 Join the BallPlateSystem Wi-Fi network first, then from gui/:
 
-    python -m live_telemetry [--port 9002] [--stale-timeout 1.0]
+    python -m live_telemetry [--port PORT] [--stale-timeout SECONDS]
+
+The defaults come from config.py.
 
 This only listens. It sends nothing to the firmware.
 """
@@ -15,7 +17,9 @@ import time
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
-from telemetry_receiver import STALE_TIMEOUT_S, TELEMETRY_PORT, LinkMonitor, TelemetryReceiver
+import config
+from state import app_state
+from telemetry_receiver import LinkMonitor, TelemetryReceiver
 from widgets.telemetry import TelemetryWidget
 
 # How often the link status is re-checked for staleness.
@@ -38,7 +42,14 @@ class TelemetryBridge(QObject):
 class LiveTelemetryController(QObject):
     """Connects a TelemetryReceiver to a TelemetryWidget."""
 
-    def __init__(self, widget, port=TELEMETRY_PORT, stale_timeout=STALE_TIMEOUT_S, host="", parent=None):
+    def __init__(
+        self,
+        widget,
+        port=config.PC_TELEMETRY_PORT,
+        stale_timeout=config.TELEMETRY_STALE_TIMEOUT_S,
+        host="",
+        parent=None,
+    ):
         super().__init__(parent)
         self._widget = widget
         self._port = port
@@ -78,6 +89,7 @@ class LiveTelemetryController(QObject):
 
     def _on_sample(self, sample, stats):
         self._monitor.packet_received(sample.received_at)
+        _store_in_app_state(sample)
         self._widget.set_sample(sample)
         self._widget.set_stats(stats)
         self._refresh_status()
@@ -103,13 +115,30 @@ class LiveTelemetryController(QObject):
         )
 
 
+def _store_in_app_state(sample):
+    """Copy the latest measurement into the shared app state for other parts of the GUI."""
+    with app_state._lock:
+        ball = app_state.ball
+        ball.detected = sample.ball_detected
+        ball.x = sample.ball_x
+        ball.y = sample.ball_y
+        ball.measurement_age_ms = sample.measurement_age_ms
+        ball.sequence = sample.sequence
+
+        pid = app_state.pid
+        pid.error_x = sample.error_x_mm
+        pid.error_y = sample.error_y_mm
+        pid.output_x_us = sample.output_x_us
+        pid.output_y_us = sample.output_y_us
+
+
 def main():
     parser = argparse.ArgumentParser(description="Live ESP32-S3 telemetry monitor")
-    parser.add_argument("--port", type=int, default=TELEMETRY_PORT)
+    parser.add_argument("--port", type=int, default=config.PC_TELEMETRY_PORT)
     parser.add_argument(
         "--stale-timeout",
         type=float,
-        default=STALE_TIMEOUT_S,
+        default=config.TELEMETRY_STALE_TIMEOUT_S,
         help="seconds without a packet before telemetry is marked stale",
     )
     args = parser.parse_args()

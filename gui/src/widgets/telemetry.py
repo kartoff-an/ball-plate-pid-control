@@ -5,8 +5,8 @@ sample arrives ("--" rather than 0), and once the link goes stale the last
 values stay visible but are greyed out so they are not mistaken for current
 readings.
 
-Units follow the firmware: ball position and error are camera pixels, and
-controller output and servo commands are microseconds.
+Units follow the firmware: error is plate millimeters, and controller output
+and servo commands are microseconds.
 """
 
 from PyQt6.QtCore import Qt
@@ -74,7 +74,7 @@ class TelemetryWidget(QWidget):
             controller_grid.addWidget(header, 0, column)
 
         self._controller_labels = {}
-        rows = (("error", "Error (px)"), ("output", "PID output (µs)"), ("servo", "Servo pulse (µs)"))
+        rows = (("error", "Error (mm)"), ("output", "PID output (µs)"), ("servo", "Servo pulse (µs)"))
         for row, (key, title) in enumerate(rows, start=1):
             controller_grid.addWidget(QLabel(title), row, 0)
             labels = (value_label(), value_label())
@@ -120,7 +120,7 @@ class TelemetryWidget(QWidget):
         self._detected_label.setText("Yes" if sample.ball_detected else "No")
         _set_pair(self._ball_labels, (sample.ball_x, sample.ball_y), "{:d}")
         self._age_label.setText(f"{sample.measurement_age_ms:d}")
-        _set_pair(self._controller_labels["error"], (sample.error_x_px, sample.error_y_px), "{:.2f}")
+        _set_pair(self._controller_labels["error"], (sample.error_x_mm, sample.error_y_mm), "{:.2f}")
         _set_pair(self._controller_labels["output"], (sample.output_x_us, sample.output_y_us), "{:.2f}")
         _set_pair(self._controller_labels["servo"], (sample.servo_x_us, sample.servo_y_us), "{:d}")
         self._enabled_label.setText("Enabled" if sample.controller_enabled else "Disabled")

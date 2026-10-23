@@ -139,11 +139,11 @@ The ESP32-S3 broadcasts telemetry over its own Wi-Fi network. The GUI only liste
 | ------- | ----- |
 | Wi-Fi network | `BallPlateSystem` (password `BallPlateSystem1234`, see `firmware/esp32_s3/main/wifi_ap.c`) |
 | ESP32-S3 address | `192.168.4.1` |
-| Telemetry | UDP broadcast to `192.168.4.255`, port `9002`, one JSON object per datagram |
+| Telemetry | UDP broadcast to `192.168.4.255`, port `9003` (`PC_TELEMETRY_PORT` in `src/config.py`), one JSON object per datagram |
 
 The firmware sends at most 20 packets per second, and **only while it has a fresh ball detection**. When the ball is removed or the camera stops, packets stop instead of reporting "no ball", so the GUI marks telemetry stale after 1 s without a packet (change this with `--stale-timeout`).
 
-Ball position and error are in camera pixels (160×120 frame). PID output and servo pulses are in microseconds. "Firmware servo output" shows the firmware's `controller_enabled` flag, which is currently always *Disabled* because `CONTROL_OUTPUT_ENABLED` is 0 in `pid_controller.c`. Pitch, roll, PID gains, the target position, and elapsed time are not in the telemetry packet, so they are not shown.
+Error is in plate millimeters. PID output and servo pulses are in microseconds. "Firmware servo output" shows the firmware's `controller_enabled` flag, which is currently always *Disabled* because `CONTROL_OUTPUT_ENABLED` is 0 in `pid_controller.c`. Pitch, roll, PID gains, the target position, and elapsed time are not in the telemetry packet, so they are not shown.
 
 ### Trying it without hardware
 
@@ -175,7 +175,7 @@ python -m telemetry_simulator --drop 0.1 --pause-every 5
 
 **Troubleshooting**
 
-* *Cannot listen on UDP port 9002:* another program, such as a second copy of the GUI, is already using the port.
+* *Cannot listen on UDP port 9003:* another program, such as a second copy of the GUI, is already using the port.
 * *Stays on "No telemetry received yet":* check that you are on `BallPlateSystem` (`ipconfig` should show a `192.168.4.x` address), check the firewall prompt, and check the ESP32-S3 serial log for `UDP telemetry initialized`.
 * *Packets rejected keeps rising:* the reason is shown under the counters, and full details are printed to the terminal.
 

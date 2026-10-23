@@ -5,11 +5,8 @@ import time
 
 import numpy as np
 
+from config import FRAME_HEIGHT, FRAME_WIDTH
 from telemetry_receiver import TelemetrySample
-
-# Matches the ESP32-CAM stream (QQVGA grayscale).
-FRAME_WIDTH = 160
-FRAME_HEIGHT = 120
 
 PLATE_LEVEL = 70
 BALL_LEVEL = 230
@@ -73,7 +70,9 @@ class MockTelemetry:
 
     def sample(self, ball_px):
         ball_x, ball_y = round(ball_px[0]), round(ball_px[1])
-        error = (self._target[0] - ball_x, self._target[1] - ball_y)
+        target_mm = pixels_to_mm(self._target)
+        ball_mm = pixels_to_mm((ball_x, ball_y))
+        error = (target_mm[0] - ball_mm[0], target_mm[1] - ball_mm[1])
         output = tuple(max(-MAX_CORRECTION_US, min(MAX_CORRECTION_US, MOCK_KP * e)) for e in error)
         servo = tuple(
             max(SERVO_MIN_US, min(SERVO_MAX_US, int(SERVO_NEUTRAL_US + o))) for o in output
@@ -85,8 +84,8 @@ class MockTelemetry:
             ball_x=ball_x,
             ball_y=ball_y,
             measurement_age_ms=15,
-            error_x_px=float(error[0]),
-            error_y_px=float(error[1]),
+            error_x_mm=float(error[0]),
+            error_y_mm=float(error[1]),
             output_x_us=output[0],
             output_y_us=output[1],
             servo_x_us=servo[0],

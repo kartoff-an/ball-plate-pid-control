@@ -9,7 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define DETECTION_DEBUG     0
+#define DETECTION_DEBUG     1
 
 static const char *TAG = "BALL_PLATE";
 
@@ -56,9 +56,9 @@ void app_main(void)
 
     ESP_ERROR_CHECK(telemetry_init());
 
-    ESP_ERROR_CHECK(pca9685_init(12, 13));
-    ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
-    ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
+    // ESP_ERROR_CHECK(pca9685_init(12, 13));
+    // ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
+    // ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
 
     ESP_ERROR_CHECK(ball_receiver_init());
 

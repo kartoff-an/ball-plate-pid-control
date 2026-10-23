@@ -45,9 +45,6 @@ static void camera_frame_task(void *task_context)
 
         if (frame == NULL) {
             ESP_LOGW(TAG, "Frame capture failed");
-            // if (CAMERA_FRAME_INTERVAL_MS > 0) {
-            //     vTaskDelay(pdMS_TO_TICKS(CAMERA_FRAME_INTERVAL_MS));
-            // }
             continue;
         }
 
@@ -66,21 +63,13 @@ static void camera_frame_task(void *task_context)
             continue;
         }
 
-        const uint16_t width = frame->width;
-        const uint16_t height = frame->height;
-        const size_t pixel_count = (size_t)width * height;
-
-        const camera_image_stats_t stats = camera_capture_get_image_stats(
-            frame->buf,
-            pixel_count
-        );
+        const size_t pixel_count = FRAME_SIZE;
+        const camera_image_stats_t stats = camera_capture_get_image_stats(frame->buf, pixel_count);
 
         // starting here, we perform the ball detection before we release the camera capture
         ball_detection_result_t detection = {0};
         const esp_err_t detection_err = ball_detection_detect(
             frame->buf,
-            width,
-            height,
             BALL_DETECTION_THRESHOLD,
             BALL_DETECTION_MIN_AREA,
             BALL_DETECTION_MAX_AREA,

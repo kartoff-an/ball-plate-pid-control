@@ -26,7 +26,7 @@ typedef struct {
 } telemetry_data_t;
 
 esp_err_t telemetry_init(void);
-esp_err_t telemetry_send(const telemetry_data_t *data);
+esp_err_t telemetry_publish(const telemetry_data_t *data);
 void telemetry_deinit(void);
 
 #endif

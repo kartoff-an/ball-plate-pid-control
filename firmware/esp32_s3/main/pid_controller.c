@@ -19,11 +19,18 @@
 #define CONTROL_PERIOD_MS           10
 #define MAX_MEASUREMENT_AGE_MS      150
 
-#define TARGET_X                    80.0f
-#define TARGET_Y                    60.0f
-
 #define FRAME_WIDTH                 160
 #define FRAME_HEIGHT                120
+
+#define PLATE_SIZE_MM               220.0f
+#define PIXELS_PER_PLATE_AXIS       120.0f
+#define PIXELS_TO_MM                (PLATE_SIZE_MM / PIXELS_PER_PLATE_AXIS)
+
+#define PLATE_CENTER_X_PX           80.0f
+#define PLATE_CENTER_Y_PX           60.0f
+
+#define TARGET_X_MM                 0.0f
+#define TARGET_Y_MM                 0.0f
 
 #define SERVO_X_CHANNEL             0
 #define SERVO_Y_CHANNEL             1
@@ -82,6 +89,11 @@ static float clampf(float value, float minimum, float maximum)
     return value;
 }
 
+static float pixels_to_mm(float pixel, float center_pixel)
+{
+    return (pixel - center_pixel) * PIXELS_TO_MM;
+}
+
 static float pid_update(pid_axis_t *pid, float error, float dt_seconds)
 {
     if (dt_seconds <= 0.0f || dt_seconds > 0.25f) {
@@ -99,7 +111,7 @@ static float pid_update(pid_axis_t *pid, float error, float dt_seconds)
         pid->integral = proposed_integral;
     }
 
-    output = pid->kp * error + pid->ki * pid->integral * pid->kd * derivative;
+    output = pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
     pid->previous_error = error;
 
     return clampf(output, -pid->output_limit, pid->output_limit);
@@ -169,8 +181,11 @@ static void control_task(void *arg)
                 dt_seconds = (float)(now_us - previous_update_us) / 1000000.0f;
             }
 
-            const float error_x = TARGET_X - (float)measurement.center_x;
-            const float error_y = TARGET_Y - (float)measurement.center_y;
+            const float ball_x_mm = pixels_to_mm((float)measurement.center_x, PLATE_CENTER_X_PX);
+            const float ball_y_mm = pixels_to_mm((float)measurement.center_y, PLATE_CENTER_Y_PX);
+
+            const float error_x = TARGET_X_MM - ball_x_mm;
+            const float error_y = TARGET_Y_MM - ball_y_mm;
 
             if (!have_sequence) {
                 s_pid_x.previous_error = error_x;
@@ -199,11 +214,11 @@ static void control_task(void *arg)
             telemetry_data_t telemetry = {
                 .sequence = s_telemetry_sequence++,
                 .ball_detected = measurement.detected == 1,
-                .ball_x = measurement.center_x,
-                .ball_y = measurement.center_y,
+                .ball_x = ball_x_mm,
+                .ball_y = ball_y_mm,
                 .measurement_age_ms = age_ms,
-                .error_x = TARGET_X - (float)measurement.center_x,
-                .error_y = TARGET_Y - (float)measurement.center_y,
+                .error_x = error_x,
+                .error_y = error_y,
                 .output_x_us = command_x_us,
                 .output_y_us = command_y_us,
                 .servo_x_us = safe_x_pulse,

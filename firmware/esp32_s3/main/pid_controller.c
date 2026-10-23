@@ -210,11 +210,11 @@ static void control_task(void *arg)
                 .servo_y_us = safe_y_pulse,
                 .controller_enabled = CONTROL_OUTPUT_ENABLED
             };
-            esp_err_t telemetry_error = telemetry_send(&telemetry);
+            esp_err_t telemetry_error = telemetry_publish(&telemetry);
 
             #if TELEMETRY_DEBUG
             if (telemetry_error != ESP_OK) {
-                ESP_LOGW(TAG, "Telemetry send failed: %s", esp_err_to_name(telemetry_error));
+                ESP_LOGW(TAG, "Telemetry publish failed: %s", esp_err_to_name(telemetry_error));
             }
             #endif
 

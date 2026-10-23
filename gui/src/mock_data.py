@@ -1,8 +1,11 @@
-"""Fake camera frames for GUI development until the ESP32-CAM feed is integrated."""
+"""Fake camera frames and telemetry for GUI development without hardware."""
 
 import math
+import time
 
 import numpy as np
+
+from telemetry_receiver import TelemetrySample
 
 # Matches the ESP32-CAM stream (QQVGA grayscale).
 FRAME_WIDTH = 160
@@ -41,8 +44,6 @@ class MockCamera:
 
 # Placeholder scale until the camera is calibrated against the real plate.
 MM_PER_PIXEL = 1.5
-MAX_SERVO_ANGLE = 15.0
-SERVO_GAIN = 0.2
 
 
 def pixels_to_mm(position):
@@ -51,9 +52,47 @@ def pixels_to_mm(position):
     return (x - FRAME_WIDTH / 2) * MM_PER_PIXEL, (FRAME_HEIGHT / 2 - y) * MM_PER_PIXEL
 
 
-def mock_servo_angles(measured, target):
-    """Rough proportional response so the servo readouts move plausibly."""
-    return tuple(
-        max(-MAX_SERVO_ANGLE, min(MAX_SERVO_ANGLE, SERVO_GAIN * (t - m)))
-        for m, t in zip(measured, target)
-    )
+# Mirrors the defaults in firmware/esp32_s3/main/pid_controller.c.
+SERVO_NEUTRAL_US = 1500
+SERVO_MIN_US = 1420
+SERVO_MAX_US = 1580
+MAX_CORRECTION_US = 80.0
+MOCK_KP = 0.5
+
+
+class MockTelemetry:
+    """Builds firmware-shaped TelemetrySamples from a ball position in pixels.
+
+    Uses the same P-only response and servo limits as the firmware so the
+    numbers look realistic, with servo output reported as disabled.
+    """
+
+    def __init__(self, target=(FRAME_WIDTH / 2, FRAME_HEIGHT / 2)):
+        self._target = target
+        self._sequence = 0
+
+    def sample(self, ball_px):
+        ball_x, ball_y = round(ball_px[0]), round(ball_px[1])
+        error = (self._target[0] - ball_x, self._target[1] - ball_y)
+        output = tuple(max(-MAX_CORRECTION_US, min(MAX_CORRECTION_US, MOCK_KP * e)) for e in error)
+        servo = tuple(
+            max(SERVO_MIN_US, min(SERVO_MAX_US, int(SERVO_NEUTRAL_US + o))) for o in output
+        )
+
+        sample = TelemetrySample(
+            sequence=self._sequence,
+            ball_detected=True,
+            ball_x=ball_x,
+            ball_y=ball_y,
+            measurement_age_ms=15,
+            error_x_px=float(error[0]),
+            error_y_px=float(error[1]),
+            output_x_us=output[0],
+            output_y_us=output[1],
+            servo_x_us=servo[0],
+            servo_y_us=servo[1],
+            controller_enabled=False,
+            received_at=time.monotonic(),
+        )
+        self._sequence += 1
+        return sample

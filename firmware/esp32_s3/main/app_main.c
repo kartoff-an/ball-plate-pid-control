@@ -1,9 +1,12 @@
 #include "wifi_ap.h"
 #include "ball_receiver.h"
+#include "pca9685.h"
+#include "pid_controller.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define DETECTION_DEBUG     0
 
@@ -43,15 +46,21 @@ static void ball_monitor_task(void *arg)
     }
 }
 
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(wifi_ap_init());
 
     ESP_LOGI(TAG, "ESP32-S3 AP is ready");
 
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
+
     ESP_ERROR_CHECK(ball_receiver_init());
 
     #if CAMERA_DEBUG
     xTaskCreate(ball_monitor_task, "ball_monitor", 3072, NULL, 3, NULL);
     #endif
+
+    ESP_ERROR_CHECK(pid_controller_init());
 }

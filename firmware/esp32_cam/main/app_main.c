@@ -6,6 +6,7 @@
 #include "wifi_stream.h"
 #include "wifi_station.h"
 #include "ball_detection.h"
+#include "ball_now.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -13,6 +14,8 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#define CAMERA_DEBUG                  0
 
 #define FRAME_WIDTH                   160
 #define FRAME_HEIGHT                  120
@@ -91,6 +94,11 @@ static void camera_frame_task(void *task_context)
             continue;
         }
 
+        esp_err_t error = ball_now_send_detection(frame_seq, &detection);
+        if (error != ESP_OK) {
+            ESP_LOGW("BALL_NOW", "Measurement send request failed: %s", esp_err_to_name(error));
+        }
+
         // then transmit these frames over UDP for visual display in the GUI
         const esp_err_t frame_stream_result = wifi_stream_submit_frame(
             frame_seq,
@@ -112,15 +120,14 @@ static void camera_frame_task(void *task_context)
         frame_seq++;
         frames_since_report++;
 
+        #if CAMERA_DEBUG
+
         // report once per second
         const int64_t now_us = esp_timer_get_time();
         const int64_t elapsed_us = now_us - last_report_us;
 
         if (elapsed_us >= 1000000) {
-            const uint32_t fps_x10 = (uint32_t)(
-                ((uint64_t)frames_since_report * 10000000ULL) /
-                (uint64_t)elapsed_us
-            );
+            const uint32_t fps_x10 = (uint32_t)(((uint64_t)frames_since_report * 10000000ULL) / (uint64_t)elapsed_us);
             ESP_LOGI(
                 TAG,
                 "frames=%" PRIu32
@@ -157,9 +164,12 @@ static void camera_frame_task(void *task_context)
             dropped_frames_since_report = 0;
             last_report_us = now_us;
         }
+
+        #endif
     }
 }
 
+static const uint8_t S3_AP_MAC[6] = {0xAC, 0xA7, 0x04, 0x2B, 0x9D, 0x35};
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting ESP32-CAM");
@@ -167,6 +177,8 @@ void app_main(void)
     ESP_ERROR_CHECK(wifi_station_connect());
 
     ESP_LOGI(TAG, "Wi-Fi connected");
+
+    ESP_ERROR_CHECK(ball_now_init(S3_AP_MAC));
 
     ESP_ERROR_CHECK(wifi_stream_init());
 

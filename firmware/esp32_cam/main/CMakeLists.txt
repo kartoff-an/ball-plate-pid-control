@@ -1,11 +1,22 @@
 idf_component_register(
-    SRCS "app_main.c"
-    INCLUDE_DIRS "."
+    SRCS
+        "ball_now.c"
+        "app_main.c"
+        "ball_detection.c"
+        "camera_capture.c"
+        "wifi_station.c"
+        "wifi_stream.c"
+    INCLUDE_DIRS "include"
     REQUIRES
-        camera_capture
-        streaming
-        wifi_station
-        esp_timer
+        esp32-camera
         esp_common
-        ball_detection
+        esp_event
+        esp_netif
+        esp_timer
+        esp_wifi
+        freertos
+        heap
+        log
+        lwip
+        nvs_flash
 )

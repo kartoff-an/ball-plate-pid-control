@@ -11,7 +11,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
-#define TELEMETRY_PORT              9002
+#define TELEMETRY_PORT              9003
 #define TELEMETRY_BROADCAST_IP      "192.168.4.255"
 #define TELEMETRY_BUFFER_SIZE       512
 
@@ -43,8 +43,8 @@ static esp_err_t telemetry_send(const telemetry_data_t *data)
             "\"ball_x\":%u,"
             "\"ball_y\":%u,"
             "\"measurement_age_ms\":%" PRIu64 ","
-            "\"error_x_px\":%.2f,"
-            "\"error_y_px\":%.2f,"
+            "\"error_x_mm\":%.2f,"
+            "\"error_y_mm\":%.2f,"
             "\"output_x_us\":%.2f,"
             "\"output_y_us\":%.2f,"
             "\"servo_x_us\":%u,"

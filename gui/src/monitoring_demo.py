@@ -12,7 +12,7 @@ import time
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 
-from mock_data import FRAME_HEIGHT, FRAME_WIDTH, MockCamera, mock_servo_angles, pixels_to_mm
+from mock_data import FRAME_HEIGHT, FRAME_WIDTH, MockCamera, MockTelemetry, pixels_to_mm
 from widgets.camera_preview import CameraPreviewWidget
 from widgets.plots import PlotsWidget
 from widgets.telemetry import TelemetryWidget
@@ -26,13 +26,14 @@ def main():
     app.setStyle("Fusion")
 
     camera = MockCamera()
+    mock_telemetry = MockTelemetry(target=TARGET_PX)
     preview = CameraPreviewWidget(FRAME_WIDTH, FRAME_HEIGHT)
     telemetry = TelemetryWidget()
     plots = PlotsWidget()
 
     preview.set_status("Mock camera: 160x120 grayscale")
     preview.set_target_position(TARGET_PX)
-    telemetry.set_target_position(TARGET_MM)
+    telemetry.set_simulated()
 
     left = QVBoxLayout()
     left.addWidget(preview, stretch=1)
@@ -54,9 +55,7 @@ def main():
 
         preview.set_frame(camera.frame(t))
         preview.set_ball_position(ball_px)
-        telemetry.set_measured_position(measured)
-        telemetry.set_servo_angles(mock_servo_angles(measured, TARGET_MM))
-        telemetry.set_elapsed_time(t)
+        telemetry.set_sample(mock_telemetry.sample(ball_px))
         plots.add_sample(t, measured, TARGET_MM)
 
     timer = QTimer()

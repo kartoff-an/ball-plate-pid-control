@@ -20,6 +20,9 @@
 
 #define FRAME_STREAM_UDP_PORT   9000
 
+#define CLIENT_HEARTBEAT_TIMEOUT_MS 3000
+#define CLIENT_TIMEOUT_CHECK_MS 100
+
 #define FRAME_WIDTH             160
 #define FRAME_HEIGHT            120
 #define FRAME_SIZE              (FRAME_WIDTH * FRAME_HEIGHT)
@@ -201,7 +204,7 @@ static int send_frame_udp(
  * A PC can register or update its receiving port by sending
  * the four ASCII bytes "HELO" to the camera's station IP on port 9000.
  */
-static void update_client_addr(int socket_fd, struct sockaddr_in *client_addr)
+static bool update_client_addr(int socket_fd, struct sockaddr_in *client_addr)
 {
     uint8_t datagram[32];
     struct sockaddr_in sender_addr = {0};
@@ -216,9 +219,19 @@ static void update_client_addr(int socket_fd, struct sockaddr_in *client_addr)
         &sender_addr_len
     );
 
-    if (received == 4 && memcmp(datagram, "HELO", 4) == 0) {
-        *client_addr = sender_addr;
+    if (received < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            ESP_LOGW(TAG, "UDP receive failed: errno=%d (%s)", errno, strerror(errno));
+        }
+        return false;
     }
+
+    if (received != 4 || memcmp(datagram, "HELO", 4) != 0) {
+        return false;
+    }
+
+    *client_addr = sender_addr;
+    return true;
 }
 
 /* Prefer the newest queued frame and release stale frames. */
@@ -237,17 +250,35 @@ static bool receive_latest_frame_slot(uint8_t *slot)
     return true;
 }
 
+static void discard_queued_frames(void)
+{
+    uint8_t slot;
+
+    while (xQueueReceive(queued_frame_slots, &slot, 0) == pdTRUE) {
+        release_frame_slot(slot);
+    }
+}
+
 /* Stream detections and frames to the registered PC. */
 static void stream_client_udp(int socket_fd, struct sockaddr_in client_addr)
 {
+    TickType_t last_heartbeat_tick = xTaskGetTickCount();
+    ESP_LOGI(TAG, "Streaming started");
+
     while (true) {
-        update_client_addr(socket_fd, &client_addr);
+        /*
+         * A valid HELO refreshes the timeout and updates the
+         * receiver address if the PC's receiving port changes.
+         */
+        if(update_client_addr(socket_fd, &client_addr)) {
+            last_heartbeat_tick = xTaskGetTickCount();
+        }
 
-        // ball_detection_message_t detection_message;
-
-        // if (xQueueReceive(pending_detection_queue, &detection_message, 0) == pdPASS) {
-        //     send_detection_udp(socket_fd, &client_addr, &detection_message);
-        // }
+        const TickType_t elapsed_tick = xTaskGetTickCount() - last_heartbeat_tick;
+        if (elapsed_tick >= pdMS_TO_TICKS(CLIENT_HEARTBEAT_TIMEOUT_MS)) {
+            ESP_LOGW(TAG, "PC heartbeat timeout; stopping stream");
+            break;
+        }
 
         uint8_t slot;
         if (!receive_latest_frame_slot(&slot)) {
@@ -267,6 +298,9 @@ static void stream_client_udp(int socket_fd, struct sockaddr_in client_addr)
             vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
+
+    discard_queued_frames();
+    ESP_LOGI(TAG, "Stream stopped; waiting for PC registration");
 }
 
 /*

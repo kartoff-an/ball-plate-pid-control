@@ -98,13 +98,14 @@ static void telemetry_task(void *arg)
 
 esp_err_t telemetry_init(void)
 {
-    if (s_queue == NULL || s_socket >= 0) {
+    if (s_queue != NULL || s_socket >= 0) {
         return ESP_ERR_INVALID_STATE;
     }
 
     s_queue = xQueueCreate(1, sizeof(telemetry_data_t));
     if (s_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create telemetry queue");
+        return ESP_ERR_NO_MEM;
     }
 
     s_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);

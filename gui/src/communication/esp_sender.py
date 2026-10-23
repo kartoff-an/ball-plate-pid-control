@@ -2,7 +2,7 @@ import json
 import math
 import socket
 
-from gui import config
+import config
 
 class ESPSender:
     """Sends commands to the ESP32-S3 over UDP."""

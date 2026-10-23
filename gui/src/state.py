@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Optional
-from gui import config
+import config
 
 @dataclass
 class TargetState:
@@ -45,3 +45,5 @@ class AppState:
     _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
 
 app_state = AppState()
+
+print(TargetState.x)

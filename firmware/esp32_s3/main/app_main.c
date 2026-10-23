@@ -2,6 +2,7 @@
 #include "ball_receiver.h"
 #include "pca9685.h"
 #include "pid_controller.h"
+#include "telemetry.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -53,12 +54,15 @@ void app_main(void)
 
     ESP_LOGI(TAG, "ESP32-S3 AP is ready");
 
+    ESP_ERROR_CHECK(telemetry_init());
+
+    ESP_ERROR_CHECK(pca9685_init(12, 13));
     ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
     ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
 
     ESP_ERROR_CHECK(ball_receiver_init());
 
-    #if CAMERA_DEBUG
+    #if DETECTION_DEBUG
     xTaskCreate(ball_monitor_task, "ball_monitor", 3072, NULL, 3, NULL);
     #endif
 

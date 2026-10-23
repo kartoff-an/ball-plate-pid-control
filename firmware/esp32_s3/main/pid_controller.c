@@ -7,11 +7,14 @@
 #include "ball_receiver.h"
 #include "ball_measurement.h"
 #include "pca9685.h"
+#include "telemetry.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#define TELEMETRY_DEBUG             0
 
 #define CONTROL_PERIOD_MS           10
 #define MAX_MEASUREMENT_AGE_MS      150
@@ -109,6 +112,8 @@ static esp_err_t set_neutral(void)
     return x_error != ESP_OK ? x_error : y_error;
 }
 
+static uint32_t s_telemetry_sequence = 0;
+
 static void control_task(void *arg)
 {
     (void)arg;
@@ -190,6 +195,28 @@ static void control_task(void *arg)
             const uint16_t safe_y_pulse = (uint16_t)
                 (y_pulse < SERVO_MIN_US ? SERVO_MIN_US :
                  y_pulse > SERVO_MAX_US ? SERVO_MAX_US : y_pulse);
+
+            telemetry_data_t telemetry = {
+                .sequence = s_telemetry_sequence++,
+                .ball_detected = measurement.detected == 1,
+                .ball_x = measurement.center_x,
+                .ball_y = measurement.center_y,
+                .measurement_age_ms = age_ms,
+                .error_x = TARGET_X - (float)measurement.center_x,
+                .error_y = TARGET_Y - (float)measurement.center_y,
+                .output_x_us = command_x_us,
+                .output_y_us = command_y_us,
+                .servo_x_us = safe_x_pulse,
+                .servo_y_us = safe_y_pulse,
+                .controller_enabled = CONTROL_OUTPUT_ENABLED
+            };
+            esp_err_t telemetry_error = telemetry_send(&telemetry);
+
+            #if TELEMETRY_DEBUG
+            if (telemetry_error != ESP_OK) {
+                ESP_LOGW(TAG, "Telemetry send failed: %s", esp_err_to_name(telemetry_error));
+            }
+            #endif
 
             if (CONTROL_OUTPUT_ENABLED) {
                 esp_err_t x_error = pca9685_set_pulse_us(SERVO_X_CHANNEL, safe_x_pulse);

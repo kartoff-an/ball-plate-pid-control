@@ -5,6 +5,7 @@ idf_component_register(
         "pca9685.c"
         "pid_controller.c"
         "wifi_ap.c"
+        "telemetry.c"
     INCLUDE_DIRS "include"
     REQUIRES
         esp_common

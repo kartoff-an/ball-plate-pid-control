@@ -6,6 +6,17 @@
 
 #include "esp_err.h"
 
+#define BALL_DETECTION_FRAME_WIDTH          160U
+#define BALL_DETECTION_FRAME_HEIGHT         120U
+
+#define BALL_DETECTION_CROP_WIDTH           120U
+#define BALL_DETECTION_CROP_HEIGHT          120U
+
+#define BALL_DETECTION_CROP_X_OFFSET        20U
+#define BALL_DETECTION_CROP_Y_OFFSET        0U
+
+#define BALL_DETECTION_CROP_SIZE            (BALL_DETECTION_CROP_WIDTH * BALL_DETECTION_CROP_HEIGHT)
+
 typedef struct {
     bool detected;
 
@@ -23,8 +34,6 @@ typedef struct {
 
 esp_err_t ball_detection_detect(
     const uint8_t *grayscale_pixels,
-    uint16_t image_width,
-    uint16_t image_height,
     uint8_t threshold,
     uint32_t min_area,
     uint32_t max_area,

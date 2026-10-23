@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -21,6 +21,9 @@ PC_PORT = 9001
 WIDTH = 160
 HEIGHT = 120
 FRAME_SIZE = WIDTH * HEIGHT
+
+DETECT_SIZE = 120
+CROP_X = (WIDTH - DETECT_SIZE) // 2
 
 HEADER_SIZE = 16
 PAYLOAD_SIZE = 1200
@@ -309,6 +312,21 @@ class CameraWindow(QMainWindow):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.FastTransformation,
         )
+
+        # Draw the square detection region over the preview.
+        scale_x = pixmap.width() / WIDTH
+        scale_y = pixmap.height() / HEIGHT
+
+        crop_left = round(CROP_X * scale_x)
+        crop_top = 0
+        crop_width = round(DETECT_SIZE * scale_x)
+        crop_height = round(DETECT_SIZE * scale_y)
+
+        painter = QPainter(pixmap)
+        pen = QPen(QColor(0, 255, 0), 2)
+        painter.setPen(pen)
+        painter.drawRect(crop_left, crop_top, crop_width - 1, crop_height - 1)
+        painter.end()
 
         self.image_label.setPixmap(pixmap)
 

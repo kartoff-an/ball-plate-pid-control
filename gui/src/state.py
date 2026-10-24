@@ -45,5 +45,3 @@ class AppState:
     _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
 
 app_state = AppState()
-
-print(TargetState.x)

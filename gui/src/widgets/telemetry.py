@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QGridLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
-from telemetry_receiver import LinkState
+from communication.telemetry_receiver import LinkState
 
 UNAVAILABLE = "--"
 # Full reasons go to the log; the panel only needs enough to spot a problem.
@@ -86,31 +86,19 @@ class TelemetryWidget(QWidget):
         self._enabled_label = value_label()
         controller_grid.addWidget(self._enabled_label, len(rows) + 1, 1, 1, 2)
 
-        link_box = QGroupBox("Link")
-        link_grid = QGridLayout(link_box)
         self._sequence_label = value_label()
         self._received_label = value_label()
         self._rejected_label = value_label()
         self._missed_label = value_label()
-        for row, (title, label) in enumerate((
-            ("Last sequence", self._sequence_label),
-            ("Packets received", self._received_label),
-            ("Packets rejected", self._rejected_label),
-            ("Packets missed (sequence gaps)", self._missed_label),
-        )):
-            link_grid.addWidget(QLabel(title), row, 0)
-            link_grid.addWidget(label, row, 1)
         self._reject_reason_label = QLabel()
         self._reject_reason_label.setWordWrap(True)
         self._reject_reason_label.setStyleSheet("color: gray;")
-        link_grid.addWidget(self._reject_reason_label, 4, 0, 1, 2)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._status_label)
         layout.addWidget(ball_box)
         layout.addWidget(controller_box)
-        layout.addWidget(link_box)
         layout.addStretch(1)
 
         self.set_link_state(LinkState.NO_DATA)
@@ -173,36 +161,3 @@ class TelemetryWidget(QWidget):
 def _set_pair(labels, pair, fmt):
     for label, value in zip(labels, pair):
         label.setText(UNAVAILABLE if value is None else fmt.format(value))
-
-
-if __name__ == "__main__":
-    # Standalone demo with mock data. From gui/: python -m widgets.telemetry
-    import sys
-    import time
-
-    from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QApplication
-
-    from mock_data import MockCamera, MockTelemetry
-
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
-    camera = MockCamera()
-    mock = MockTelemetry()
-    telemetry = TelemetryWidget()
-    telemetry.setWindowTitle("Telemetry (mock data)")
-    telemetry.resize(360, 480)
-    telemetry.set_simulated()
-    start = time.perf_counter()
-
-    def tick():
-        t = time.perf_counter() - start
-        telemetry.set_sample(mock.sample(camera.ball_position(t)))
-
-    timer = QTimer()
-    timer.timeout.connect(tick)
-    timer.start(100)
-
-    telemetry.show()
-    sys.exit(app.exec())

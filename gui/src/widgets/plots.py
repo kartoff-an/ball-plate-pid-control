@@ -97,36 +97,3 @@ class PlotsWidget(QWidget):
 
         end = max(t[-1], self._window_seconds)
         self._position_plot.setXRange(end - self._window_seconds, end, padding=0)
-
-
-if __name__ == "__main__":
-    # Standalone demo with mock data. From gui/: python -m widgets.plots
-    import sys
-    import time
-
-    from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QApplication
-
-    from mock_data import MockCamera, pixels_to_mm
-
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
-    camera = MockCamera()
-    plots = PlotsWidget()
-    plots.setWindowTitle("Plots (mock data)")
-    plots.resize(800, 600)
-
-    target = (0.0, 0.0)
-    start = time.perf_counter()
-
-    def tick():
-        t = time.perf_counter() - start
-        plots.add_sample(t, pixels_to_mm(camera.ball_position(t)), target)
-
-    timer = QTimer()
-    timer.timeout.connect(tick)
-    timer.start(33)
-
-    plots.show()
-    sys.exit(app.exec())

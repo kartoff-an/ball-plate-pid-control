@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import QApplication
 
 import config
 from state import app_state
-from telemetry_receiver import LinkMonitor, TelemetryReceiver
+from communication.telemetry_receiver import LinkMonitor, TelemetryReceiver
 from widgets.telemetry import TelemetryWidget
 
 # How often the link status is re-checked for staleness.

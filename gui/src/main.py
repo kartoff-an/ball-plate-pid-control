@@ -11,7 +11,7 @@ def main():
     app.setStyle("Fusion")
 
     window = BallPlateWindow()
-    window.show()
+    window.showMaximized()
 
     sys.exit(app.exec())
 

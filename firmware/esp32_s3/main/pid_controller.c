@@ -214,8 +214,8 @@ static void control_task(void *arg)
             telemetry_data_t telemetry = {
                 .sequence = s_telemetry_sequence++,
                 .ball_detected = measurement.detected == 1,
-                .ball_x = ball_x_mm,
-                .ball_y = ball_y_mm,
+                .ball_x = measurement.center_x,
+                .ball_y = measurement.center_y,
                 .measurement_age_ms = age_ms,
                 .error_x = error_x,
                 .error_y = error_y,

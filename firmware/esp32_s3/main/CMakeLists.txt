@@ -6,6 +6,7 @@ idf_component_register(
         "pid_controller.c"
         "wifi_ap.c"
         "telemetry.c"
+        "calibration_commands.c"
     INCLUDE_DIRS "include"
     REQUIRES
         esp_common

@@ -23,8 +23,8 @@
 #define CAMERA_FRAME_INTERVAL_MS      0
 
 #define BALL_DETECTION_THRESHOLD      100
-#define BALL_DETECTION_MIN_AREA          8
-#define BALL_DETECTION_MAX_AREA       1000
+#define BALL_DETECTION_MIN_AREA       300
+#define BALL_DETECTION_MAX_AREA       500
 
 static const char *TAG = "BALL_PLATE_CAMERA";
 static uint8_t binary_frame[FRAME_SIZE];
@@ -120,14 +120,11 @@ static void camera_frame_task(void *task_context)
             ESP_LOGI(
                 TAG,
                 "frames=%" PRIu32
-                " size=%ux%u"
                 " gray[min=%u max=%u mean=%u]"
                 " processing=%" PRIu32 " ms"
                 " fps=%" PRIu32 ".%" PRIu32
                 " stream_dropped=%" PRIu32,
                 frame_seq,
-                (unsigned)width,
-                (unsigned)height,
                 (unsigned)stats.min,
                 (unsigned)stats.max,
                 (unsigned)stats.mean,

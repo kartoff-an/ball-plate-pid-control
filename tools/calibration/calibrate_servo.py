@@ -4,8 +4,8 @@ import socket
 ESP32_IP = "192.168.4.1"
 PORT = 9004
 
-MIN_PULSE_US = 1450
-MAX_PULSE_US = 1550
+MIN_PULSE_US = 1000
+MAX_PULSE_US = 3000
 
 
 def main():

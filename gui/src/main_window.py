@@ -13,12 +13,17 @@ from communication.telemetry_receiver import (
     TelemetrySample,
     ReceiverStats
 )
+from communication.esp_sender import ESPSender
 
 from widgets.camera_calibration import CameraCalibrationPage
 from widgets.plots import PlotsWidget
 from widgets.telemetry import TelemetryWidget
+from widgets.controller_panel import ControllerPanel
 
 log = logging.getLogger(__name__)
+
+def _log_telemetry_status(self, message: str):
+    log.info("[TELEMETRY] %s", message)
 
 class TelemetryBridge(QObject):
     sample_received = pyqtSignal(object, object)
@@ -34,6 +39,8 @@ class BallPlateWindow(QWidget):
 
         self.telemetry = TelemetryWidget()
         self.plots = PlotsWidget()
+        self.esp_sender = ESPSender();
+        self.controller_panel = ControllerPanel(self.esp_sender)
 
         self.calibrate_button = QPushButton("Calibrate Plate")
         self.calibrate_button.clicked.connect(self.start_calibration)
@@ -79,7 +86,8 @@ class BallPlateWindow(QWidget):
 
         left_layout = QVBoxLayout()
         left_layout.addLayout(self.preview_header)
-        left_layout.addWidget(self.telemetry, stretch=1)
+        left_layout.addWidget(self.telemetry, stretch=3)
+        left_layout.addWidget(self.controller_panel, stretch=3)
 
         main_layout = QHBoxLayout(self.dashboard_page)
         main_layout.addLayout(left_layout, stretch=2)
@@ -132,6 +140,26 @@ class BallPlateWindow(QWidget):
         self.telemetry.set_sample(sample)
         self.telemetry.set_stats(stats)
         self.telemetry.set_link_state(LinkState.LIVE)
+
+        log.info(
+            "[TELEMETRY] Received | seq=%s | detected=%s | "
+            "ball=(%.1f, %.1f) px | age=%s ms | "
+            "error=(%.2f, %.2f) mm | output=(%s, %s) us | "
+            "controller=%s | received=%s rejected=%s missed=%s",
+            sample.sequence,
+            sample.ball_detected,
+            sample.ball_x,
+            sample.ball_y,
+            sample.measurement_age_ms,
+            sample.error_x_mm,
+            sample.error_y_mm,
+            sample.output_x_us,
+            sample.output_y_us,
+            sample.controller_enabled,
+            stats.received,
+            stats.rejected,
+            stats.missed,
+        )
 
     def _on_packet_rejected(self, reason: str, stats: ReceiverStats):
         log.warning(
@@ -200,6 +228,7 @@ class BallPlateWindow(QWidget):
         self.timer.stop()
         self.link_timer.stop()
         self.calibration_page.stop_camera()
+        self.esp_sender.close()
 
         if hasattr(self, "receiver"):
             self.receiver.stop()

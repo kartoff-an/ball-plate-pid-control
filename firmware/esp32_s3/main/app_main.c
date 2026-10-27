@@ -3,6 +3,8 @@
 #include "pca9685.h"
 #include "pid_controller.h"
 #include "telemetry.h"
+#include "calibration_commands.h"
+#include "config_commands.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -56,9 +58,9 @@ void app_main(void)
 
     ESP_ERROR_CHECK(telemetry_init());
 
-    // ESP_ERROR_CHECK(pca9685_init(12, 13));
-    // ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
-    // ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
+    ESP_ERROR_CHECK(pca9685_init(12, 13));
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 2200));
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 2200));
 
     ESP_ERROR_CHECK(ball_receiver_init());
 
@@ -67,4 +69,8 @@ void app_main(void)
     #endif
 
     ESP_ERROR_CHECK(pid_controller_init());
+
+    ESP_ERROR_CHECK(config_commands_init());
+
+    ESP_ERROR_CHECK(calibration_commands_init());
 }

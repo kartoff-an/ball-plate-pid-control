@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QRectF
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor
@@ -30,8 +31,10 @@ from state import app_state
 log = logging.getLogger(__name__)
 
 
-TUNING_PACKET = struct.Struct("!4sIBHHfffff")
+TUNING_PACKET = struct.Struct("!4sIBHHfffffB")
 ACK_PACKET = struct.Struct("!4sIB")
+TUNING_CMD_APPLY = 0
+TUNING_CMD_SAVE = 1
 
 CROP_LEFT = 20
 CROP_TOP = 0
@@ -48,6 +51,8 @@ TELEMETRY_TIMEOUT_S = 0.5
 
 TARGET_X = CROP_LEFT + CROP_WIDTH / 2
 TARGET_Y = CROP_TOP + CROP_HEIGHT / 2
+
+VISION_CONFIG_PATH = Path(__file__).resolve().parents[1] / "vision_tuning.json"
 
 DEFAULTS = {
     "threshold": 100,
@@ -71,20 +76,18 @@ class CameraPreviewLabel(QLabel):
         self.setMinimumSize(400, 300)
         self.setStyleSheet("background-color: #111; color: white;")
 
+        self.frame_image = None
+
+    def set_frame(self, image):
+        self.frame_image = image
+        self.update()
+
     def set_ball_telemetry(self, sample):
-        if sample is None:
-            with app_state._lock:
-                app_state.ball.detected = False
-                app_state.ball.x = None
-                app_state.ball.y = None
-                app_state.ball.received_at = None
-                app_state.ball.measurement_age_ms = None
-        else:
-            with app_state._lock:
-                app_state.ball.detected = sample.ball_detected
-                app_state.ball.x = sample.ball_x if sample.ball_detected else None
-                app_state.ball.y = sample.ball_y if sample.ball_detected else None
-                app_state.ball.received_at = sample.received_at
+        with app_state._lock:
+            app_state.ball.detected = sample.ball_detected
+            app_state.ball.x = sample.ball_x if sample.ball_detected else None
+            app_state.ball.y = sample.ball_y if sample.ball_detected else None
+            app_state.ball.received_at = sample.received_at
 
         self.update()
 
@@ -96,30 +99,44 @@ class CameraPreviewLabel(QLabel):
             app_state.ball.received_at = None
             app_state.ball.measurement_age_ms = None
 
+        self.update()
+
     def paintEvent(self, event):
-        super().paintEvent(event)
-
-        frame_width = config.CAMERA_FRAME_WIDTH
-        frame_height = config.CAMERA_FRAME_HEIGHT
-
-        scale = min(self.width() / frame_width, self.height() / frame_height)
-
-        displayed_width = frame_width * scale
-        displayed_height = frame_height * scale
-
-        offset_x = (self.width() - displayed_width) / 2
-        offset_y = (self.height() - displayed_height) / 2
-
-        def map_x(x):
-            return offset_x + x * scale
-
-        def map_y(y):
-            return offset_y + y * scale
+        if self.frame_image is None:
+            super().paintEvent(event)
+            return
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Detection crop
+        frame_width = self.frame_image.width()
+        frame_height = self.frame_image.height()
+
+        contents = self.contentsRect()
+
+        scale = min(
+            contents.width() / frame_width,
+            contents.height() / frame_height,
+        )
+
+        displayed_width = frame_width * scale
+        displayed_height = frame_height * scale
+
+        image_rect = QRectF(
+            contents.x() + (contents.width() - displayed_width) / 2,
+            contents.y() + (contents.height() - displayed_height) / 2,
+            displayed_width,
+            displayed_height,
+        )
+
+        painter.drawImage(image_rect, self.frame_image)
+
+        def map_x(x):
+            return image_rect.x() + x * scale
+
+        def map_y(y):
+            return image_rect.y() + y * scale
+
         crop_rect = QRectF(
             map_x(CROP_LEFT),
             map_y(CROP_TOP),
@@ -131,13 +148,11 @@ class CameraPreviewLabel(QLabel):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(crop_rect)
 
-        # Target position
-        radius = TARGET_RADIUS_PX * scale
-
+        # Target position.
         target_x = map_x(TARGET_X)
         target_y = map_y(TARGET_Y)
+        radius = TARGET_RADIUS_PX * scale
 
-        painter.setPen(QPen(QColor("#22C55E"), 2))
         painter.drawEllipse(
             int(target_x - radius),
             int(target_y - radius),
@@ -145,21 +160,20 @@ class CameraPreviewLabel(QLabel):
             max(1, int(2 * radius)),
         )
 
-        # Ball telemetry marker
+        # Ball telemetry.
         with app_state._lock:
-            ball_detected = app_state.ball.detected
+            detected = app_state.ball.detected
             ball_x = app_state.ball.x
             ball_y = app_state.ball.y
             received_at = app_state.ball.received_at
 
-        telemetry_is_fresh = (
+        fresh = (
             received_at is not None
             and time.monotonic() - received_at <= TELEMETRY_TIMEOUT_S
         )
 
         if (
-            ball_detected
-            and telemetry_is_fresh
+            detected and fresh
             and ball_x is not None
             and ball_y is not None
             and 0 <= ball_x < frame_width
@@ -311,25 +325,11 @@ class CameraCalibrationPage(QWidget):
         ):
             control.valueChanged.connect(self._queue_send)
 
-        self.apply_button.clicked.connect(
-            self.send_config
-        )
-
-        self.reset_button.clicked.connect(
-            self.reset_defaults
-        )
-
-        self.save_button.clicked.connect(
-            self.save_settings
-        )
-
-        self.load_button.clicked.connect(
-            self.load_settings
-        )
-
-        self.stop_button.clicked.connect(
-            self.on_stop
-        )
+        self.apply_button.clicked.connect(self.send_config)
+        self.reset_button.clicked.connect(self.reset_defaults)
+        self.save_button.clicked.connect(self.save_settings)
+        self.load_button.clicked.connect(self.load_settings)
+        self.stop_button.clicked.connect(self.on_stop)
 
         # Timers
         self.refresh_timer = QTimer(self)
@@ -347,8 +347,8 @@ class CameraCalibrationPage(QWidget):
         self.send_timer.setInterval(120)
         self.send_timer.timeout.connect(self.send_config)
 
-        # Send initial configuration
-        self.send_config()
+        # Load repository configuration and apply it to the camera.
+        self.load_settings()
 
 
 
@@ -389,26 +389,21 @@ class CameraCalibrationPage(QWidget):
 
         self.send_timer.start()
 
-    def send_config(self):
-        values = self.current_settings()
-
-        if values["min_area"] > values["max_area"]:
-            self.tuning_status.setText("Invalid area range")
-            return
-
+    def send_config(self, command=TUNING_CMD_APPLY):
         self.sequence = (self.sequence + 1) & 0xFFFFFFFF
 
         packet = TUNING_PACKET.pack(
             b"VTN1",
             self.sequence,
-            values["threshold"],
-            values["min_area"],
-            values["max_area"],
-            values["min_aspect"],
-            values["max_aspect"],
-            values["min_fill"],
-            values["max_jump"],
-            values["alpha"],
+            self.threshold.value(),
+            self.min_area.value(),
+            self.max_area.value(),
+            self.min_aspect.value(),
+            self.max_aspect.value(),
+            self.min_fill.value(),
+            self.max_jump.value(),
+            self.alpha.value(),
+            command,
         )
 
         try:
@@ -474,36 +469,24 @@ class CameraCalibrationPage(QWidget):
 
     # Save / Load
     def save_settings(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save vision settings",
-            "vision_tuning.json",
-            "JSON files (*.json)",
-        )
-
-        if not path:
-            return
-
         try:
-            Path(path).write_text(json.dumps(self.current_settings(), indent=2), encoding="utf-8")
-            self.tuning_status.setText("Settings saved")
+            VISION_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            VISION_CONFIG_PATH.write_text(json.dumps(self.current_settings(), indent=4), encoding="utf-8")
+
+            self.send_config(TUNING_CMD_SAVE)
+            self.tuning_status.setText(f"Settings saved: {VISION_CONFIG_PATH.name}")
 
         except OSError as exc:
             QMessageBox.critical(self, "Could not save settings", str(exc))
 
     def load_settings(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load vision settings",
-            "",
-            "JSON files (*.json)",
-        )
-
-        if not path:
-            return
-
         try:
-            values = json.loads(Path(path).read_text(encoding="utf-8"))
+            if not VISION_CONFIG_PATH.exists():
+                self.save_settings()
+                return
+
+            values = json.loads(VISION_CONFIG_PATH.read_text(encoding="utf-8"))
+
             merged = DEFAULTS | values
 
             self.threshold.setValue(int(merged["threshold"]))
@@ -517,6 +500,8 @@ class CameraCalibrationPage(QWidget):
 
             self.send_timer.stop()
             self.send_config()
+
+            self.tuning_status.setText("Settings loaded from repository")
 
         except (OSError, ValueError, KeyError, TypeError) as exc:
             QMessageBox.critical(self, "Could not load settings", str(exc))
@@ -588,13 +573,7 @@ class CameraCalibrationPage(QWidget):
             QImage.Format.Format_Grayscale8,
         ).copy()
 
-        self.image_label.setPixmap(
-            QPixmap.fromImage(image).scaled(
-                self.image_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.FastTransformation,
-            )
-        )
+        self.image_label.set_frame(image)
 
         # Binary threshold preview
         crop = gray[CROP_TOP:CROP_BOTTOM, CROP_LEFT:CROP_RIGHT]

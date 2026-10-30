@@ -30,8 +30,8 @@ static uint8_t visited[MAX_IMAGE_PIXELS];
 static portMUX_TYPE config_lock = portMUX_INITIALIZER_UNLOCKED;
 static ball_detection_config_t active_config = {
     .threshold = 100,
-    .min_area = 8,
-    .max_area = 1000,
+    .min_area = 400,
+    .max_area = 500,
     .min_aspect_ratio = 0.75f,
     .max_aspect_ratio = 1.33f,
     .min_fill_ratio = 0.45f,

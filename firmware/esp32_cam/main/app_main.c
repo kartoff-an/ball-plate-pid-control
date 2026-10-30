@@ -13,14 +13,29 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "nvs_flash.h"
 
 static const char *TAG = "BALL_PLATE_CAMERA";
 
 static const uint8_t S3_AP_MAC[6] = {0xAC, 0xA7, 0x04, 0x2B, 0x9D, 0x35};
 
+static void init_nvs(void)
+{
+    esp_err_t error = nvs_flash_init();
+
+    if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        error = nvs_flash_init();
+    }
+
+    ESP_ERROR_CHECK(error);
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting ESP32-CAM");
+
+    init_nvs();
 
     ESP_ERROR_CHECK(wifi_station_connect());
 

@@ -73,8 +73,8 @@ esp_err_t ball_now_send_detection(uint32_t sequence, const ball_detection_result
         .version = BALL_MEASUREMENT_VERSION,
         .detected = detection->detected ? 1 : 0,
         .sequence = sequence,
-        .center_x = detection->detected ? detection->center_x + BALL_DETECTION_CROP_X_OFFSET : 0,
-        .center_y = detection->detected ? detection->center_y + BALL_DETECTION_CROP_Y_OFFSET : 0,
+        .center_x = detection->detected ? detection->center_x : 0,
+        .center_y = detection->detected ? detection->center_y : 0,
         .area = detection->detected ? detection->area : 0
     };
 

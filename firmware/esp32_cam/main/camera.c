@@ -166,6 +166,7 @@ static void camera_task(void *task_context)
             continue;
         }
 
+#if CAMERA_DEBUG
         const uint32_t processing_us = (uint32_t)(esp_timer_get_time() - processing_start_us);
 
         /* Detection performance statistics */
@@ -199,6 +200,7 @@ static void camera_task(void *task_context)
             total_processing_us = 0;
             max_processing_us = 0;
         }
+#endif
 
         /* Send ball measurement to ESP32-S3 */
         const esp_err_t measurement_result = ball_now_send_detection(frame_seq, &detection);

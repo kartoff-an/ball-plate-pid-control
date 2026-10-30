@@ -11,6 +11,7 @@
 #define VISION_TUNER_H
 
 #include "esp_err.h"
+#include "ball_detection.h"
 
 #define VISION_TUNER_UDP_PORT 9006
 
@@ -28,5 +29,25 @@
  * @note The UDP listener runs independently after successful startup.
  */
 esp_err_t vision_tuner_start(void);
+
+/**
+ * @brief Save the ball detection configuration to NVS flash.
+ *
+ * Stores the supplied configuration as a blob in the "vision" NVS
+ * namespace under the "config" key. The data is committed to flash
+ * and persists across device reboots.
+ *
+ * @param config Pointer to the ball detection configuration to save.
+ *
+ * @return
+ * - ESP_OK: Configuration saved successfully.
+ * - ESP_ERR_INVALID_ARG: Configuration pointer is NULL.
+ * - Other ESP error codes: NVS operation failed.
+ *
+ * @note This function does not apply the configuration to the
+ *       ball detection module. Use ball_detection_set_config()
+ *       separately when runtime application is required.
+ */
+esp_err_t vision_tuner_save(const ball_detection_config_t *config);
 
 #endif /* VISION_TUNER_H */

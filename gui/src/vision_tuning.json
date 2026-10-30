@@ -1,0 +1,10 @@
+{
+    "threshold": 100,
+    "min_area": 400,
+    "max_area": 500,
+    "min_aspect": 0.75,
+    "max_aspect": 1.33,
+    "min_fill": 0.45,
+    "max_jump": 15.0,
+    "alpha": 0.4
+}

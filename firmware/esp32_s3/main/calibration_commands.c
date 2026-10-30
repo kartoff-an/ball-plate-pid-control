@@ -1,3 +1,23 @@
+/**
+ * @file calibration_commands.h
+ * @brief UDP interface for runtime servo calibration and PID tuning.
+ *
+ * Provides a command listener that allows a PC or another network
+ * device to adjust servo pulse widths and PID gains without reflashing
+ * the ESP32-S3 firmware.
+ *
+ * Supported UDP commands:
+ *
+ * - SERVO <channel> <pulse_us>
+ * - GET
+ * - SET X <kp> <ki> <kd>
+ * - SET Y <kp> <ki> <kd>
+ * - SET BOTH <kp> <ki> <kd>
+ *
+ * The listener runs in its own FreeRTOS task and receives commands
+ * on the configured calibration UDP port.
+ */
+
 #include "calibration_commands.h"
 
 #include <stdbool.h>
@@ -35,10 +55,6 @@ static void send_response(int sock, const char *response, const struct sockaddr_
     sendto(sock, response, strlen(response), 0, (const struct sockaddr *)client, client_len);
 }
 
-/* ---------------------------------------------------------
- * PID gain helpers
- * --------------------------------------------------------- */
-
 static void send_gains(int sock, const struct sockaddr_in *client, socklen_t client_len)
 {
     pid_gains_t gains_x;
@@ -70,28 +86,14 @@ static void send_gains(int sock, const struct sockaddr_in *client, socklen_t cli
     send_response(sock, response, client, client_len);
 }
 
-/* ---------------------------------------------------------
- * Command handler
- *
- * Supported commands:
- *
- * SERVO <channel> <pulse_us>
- * GET
- * SET X <kp> <ki> <kd>
- * SET Y <kp> <ki> <kd>
- * SET BOTH <kp> <ki> <kd>
- * --------------------------------------------------------- */
-
 static void handle_command(int sock, char *command, const struct sockaddr_in *client, socklen_t client_len)
 {
     char response[128];
 
-    /* Trim leading whitespace. */
     while (isspace((unsigned char)*command)) {
         command++;
     }
 
-    /* Trim trailing whitespace. */
     size_t length = strlen(command);
 
     while (length > 0 && isspace((unsigned char)command[length - 1])) {
@@ -103,12 +105,12 @@ static void handle_command(int sock, char *command, const struct sockaddr_in *cl
         return;
     }
 
-    /* -----------------------------------------------------
+    /*
      * 1. Direct servo calibration
      *
      * Format: SERVO <channel> <pulse_us>
      * Example: SERVO 0 1500
-     * ----------------------------------------------------- */
+     */
 
     unsigned int channel;
     unsigned int pulse_us;
@@ -153,24 +155,24 @@ static void handle_command(int sock, char *command, const struct sockaddr_in *cl
         return;
     }
 
-    /* -----------------------------------------------------
+    /*
      * 2. Get current PID gains
      *
      * Format: GET
-     * ----------------------------------------------------- */
+     */
 
     if (strcmp(command, "GET") == 0) {
         send_gains(sock, client, client_len);
         return;
     }
 
-    /* -----------------------------------------------------
+    /*
      * 3. Update PID gains
      *
      * Format: SET X <kp> <ki> <kd>
      *         SET Y <kp> <ki> <kd>
      *         SET BOTH <kp> <ki> <kd>
-     * ----------------------------------------------------- */
+     */
 
     if (strncmp(command, "SET", 3) == 0 && (command[3] == '\0' || isspace((unsigned char)command[3]))) {
 
@@ -229,10 +231,6 @@ static void handle_command(int sock, char *command, const struct sockaddr_in *cl
 
     send_response(sock, "ERR unknown command\n", client, client_len);
 }
-
-/* ---------------------------------------------------------
- * UDP calibration and tuning task
- * --------------------------------------------------------- */
 
 static void calibration_task(void *arg)
 {

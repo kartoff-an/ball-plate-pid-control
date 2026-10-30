@@ -1,3 +1,20 @@
+/**
+ * @file config_commands.c
+ * @brief UDP JSON command handler for runtime PID configuration and control.
+ *
+ * Receives JSON commands over UDP and forwards validated configuration
+ * requests to the PID controller.
+ *
+ * Supported operations:
+ * - Update the target ball position.
+ * - Update PID gains for both control axes.
+ * - Start or stop the PID controller.
+ * - Reset the PID controller state.
+ *
+ * Each command receives a JSON acknowledgment indicating whether the
+ * requested operation succeeded or failed.
+ */
+
 #include "config_commands.h"
 
 #include <math.h>

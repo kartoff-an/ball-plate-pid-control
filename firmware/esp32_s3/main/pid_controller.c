@@ -1,3 +1,25 @@
+/**
+ * @file pid_controller.c
+ * @brief PID control implementation for the ball-and-plate system.
+ *
+ * Implements periodic ball-position feedback control using measurements
+ * received from the camera module.
+ *
+ * The controller:
+ * - Retrieves and validates incoming ball measurements.
+ * - Converts pixel coordinates into plate-relative millimeter coordinates.
+ * - Calculates position errors against the configured target.
+ * - Computes independent PID outputs for the X and Y axes.
+ * - Converts PID outputs into servo pulse-width commands.
+ * - Publishes measurement, error, and controller telemetry.
+ *
+ * The control task runs periodically, while PID calculations are performed
+ * only when a new valid measurement is received.
+ *
+ * @note Physical servo output is controlled by CONTROL_OUTPUT_ENABLED.
+ * @note Servo commands are issued through the PCA9685 driver.
+ */
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -24,6 +46,7 @@
 
 #define PLATE_SIZE_MM               220.0f
 #define PIXELS_PER_PLATE_AXIS       120.0f
+#define HALF_PLATE_SIZE             PLATE_SIZE_MM / 2.0
 #define PIXELS_TO_MM                (PLATE_SIZE_MM / PIXELS_PER_PLATE_AXIS)
 
 #define PLATE_CENTER_X_PX           80.0f
@@ -56,6 +79,9 @@
 #define SERVO_Y_SIGN                1.0f
 
 #define CONTROL_OUTPUT_ENABLED      0
+
+#define CONTROL_TASK_STACK_SIZE    4096
+#define CONTROL_TASK_PRIORITY      6
 
 static const char *TAG = "PID";
 
@@ -354,11 +380,11 @@ static void control_task(void *arg)
             };
             esp_err_t telemetry_error = telemetry_publish(&telemetry);
 
-            #if TELEMETRY_DEBUG
+#if TELEMETRY_DEBUG
             if (telemetry_error != ESP_OK) {
                 ESP_LOGW(TAG, "Telemetry publish failed: %s", esp_err_to_name(telemetry_error));
             }
-            #endif
+#endif
 
             if (CONTROL_OUTPUT_ENABLED) {
                 esp_err_t x_error = pca9685_set_pulse_us(SERVO_X_CHANNEL, safe_x_pulse);
@@ -375,13 +401,24 @@ static void control_task(void *arg)
 
 esp_err_t pid_controller_init(void)
 {
-    BaseType_t result = xTaskCreate(control_task, "pid_control", 4096, NULL, 6, NULL);
+    BaseType_t result = xTaskCreate(
+        control_task,
+        "pid_control",
+        CONTROL_TASK_STACK_SIZE,
+        NULL,
+        CONTROL_TASK_PRIORITY,
+        NULL
+    );
     return result == pdPASS ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t pid_controller_set_target(float x_mm, float y_mm)
 {
-    if (!isfinite(x_mm) || !isfinite(y_mm) || x_mm < -110.0f || x_mm > 110.0f || y_mm < -110.0f || y_mm > 110.0f) {
+    if (
+        !isfinite(x_mm) || !isfinite(y_mm) ||
+        x_mm < -HALF_PLATE_SIZE || x_mm > HALF_PLATE_SIZE ||
+        y_mm < -HALF_PLATE_SIZE || y_mm > HALF_PLATE_SIZE
+    ) {
         return ESP_ERR_INVALID_ARG;
     }
 

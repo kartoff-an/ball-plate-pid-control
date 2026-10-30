@@ -1,3 +1,21 @@
+/**
+ * @file telemetry.c
+ * @brief UDP telemetry transmission service.
+ *
+ * Implements a periodic telemetry publisher that sends the latest
+ * controller sample as a JSON-formatted UDP broadcast packet.
+ *
+ * A one-element FreeRTOS queue stores pending telemetry. New samples
+ * overwrite older pending samples, ensuring that transmission favors
+ * the most recent controller state rather than building up a backlog.
+ *
+ * The telemetry task transmits at a nominal rate of 20 Hz.
+ *
+ * @note UDP broadcast destination and transmission settings are configured
+ *       through the module-level constants below.
+ * @note UDP does not guarantee packet delivery or ordering.
+ */
+
 #include "telemetry.h"
 
 #include <stdio.h>

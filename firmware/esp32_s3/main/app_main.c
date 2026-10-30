@@ -64,9 +64,9 @@ void app_main(void)
 
     ESP_ERROR_CHECK(ball_receiver_init());
 
-    #if DETECTION_DEBUG
+#if DETECTION_DEBUG
     xTaskCreate(ball_monitor_task, "ball_monitor", 3072, NULL, 3, NULL);
-    #endif
+#endif
 
     ESP_ERROR_CHECK(pid_controller_init());
 

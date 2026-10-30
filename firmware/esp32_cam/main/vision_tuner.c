@@ -1,3 +1,35 @@
+/**
+ * @file vision_tuner.c
+ * @brief UDP-based runtime configuration for ball detection.
+ *
+ * Receives binary configuration packets from the PC over UDP, validates
+ * and applies the supplied settings through the ball detection module,
+ * then sends an acknowledgment to the packet sender.
+ *
+ * Packet format:
+ * - 4 bytes: Magic identifier ("VTN1").
+ * - 4 bytes: Sequence number (big-endian uint32).
+ * - 1 byte: Detection threshold.
+ * - 2 bytes: Minimum component area (big-endian uint16).
+ * - 2 bytes: Maximum component area (big-endian uint16).
+ * - 4 bytes: Minimum aspect ratio (IEEE-754 float32, big-endian).
+ * - 4 bytes: Maximum aspect ratio (IEEE-754 float32, big-endian).
+ * - 4 bytes: Minimum fill ratio (IEEE-754 float32, big-endian).
+ * - 4 bytes: Maximum tracking displacement (IEEE-754 float32, big-endian).
+ * - 4 bytes: Position smoothing factor (IEEE-754 float32, big-endian).
+ *
+ * Total packet size: 33 bytes.
+ *
+ * Acknowledgment format:
+ * - 4 bytes: Magic identifier ("ACK1").
+ * - 4 bytes: Received sequence number (big-endian uint32).
+ * - 1 byte: Status (0 = applied, nonzero = rejected).
+ *
+ * @note Configuration validation is performed by
+ *       ball_detection_set_config().
+ * @note The UDP listener runs in its own FreeRTOS task.
+ */
+
 #include "vision_tuner.h"
 
 #include <stdbool.h>
@@ -20,18 +52,6 @@
 #define PACKET_SIZE                     33
 static const char *TAG = "VISION_TUNER";
 
-/*
- * Wire format:
- *  4 bytes magic "VTN1"
- *  4 bytes sequence
- *  1 byte threshold
- *  2 bytes min_area
- *  2 bytes max_area
- *  5 IEEE-754 float32 values: min_aspect, max_aspect, min_fill,
- *  max_jump_px, smoothing_alpha
- *
- * ACK format: "ACK1" + uint32 sequence + uint8 status (0=applied).
- */
 static uint16_t read_u16_be(const uint8_t *p)
 {
     return ((uint16_t)p[0] << 8) | p[1];

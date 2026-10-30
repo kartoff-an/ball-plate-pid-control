@@ -1,3 +1,30 @@
+/**
+ * @file wifi_stream.c
+ * @brief UDP transport implementation for grayscale camera frames.
+ *
+ * Implements a buffered UDP streaming service for transmitting
+ * grayscale camera frames to a registered PC.
+ *
+ * Frame submission and network transmission are decoupled using
+ * two internal frame buffers and FreeRTOS queues:
+ *
+ * 1. The camera task submits a frame.
+ * 2. The module copies it into an available frame buffer.
+ * 3. The buffer index is added to the transmission queue.
+ * 4. The streaming task retrieves the newest queued frame.
+ * 5. The frame is divided into indexed UDP packets and transmitted.
+ * 6. The buffer is returned to the available-buffer queue.
+ *
+ * The receiver registers by sending "HELO" to UDP port 9000.
+ * Registration is refreshed by subsequent heartbeat messages.
+ * Streaming stops when no valid heartbeat is received within the
+ * configured timeout.
+ *
+ * @note UDP does not guarantee packet delivery, ordering, or retransmission.
+ * @note The receiver must reassemble packets using the frame sequence,
+ *       packet index, and total packet count in each packet header.
+ */
+
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -43,7 +70,6 @@ static QueueHandle_t queued_frame_slots;
 static uint8_t *grayscale_frame_buffers[FRAME_BUFFER_COUNT];
 static uint32_t frame_sequences[FRAME_BUFFER_COUNT];
 
-/* Return a frame buffer to the available-buffer queue. */
 static void release_frame_slot(uint8_t slot)
 {
     if (xQueueSend(available_frame_slots, &slot, 0) != pdTRUE) {
@@ -51,7 +77,6 @@ static void release_frame_slot(uint8_t slot)
     }
 }
 
-/* Release partially or fully initialized resources. */
 static void destroy_frame_queues(void)
 {
     if (available_frame_slots != NULL) {
@@ -70,7 +95,6 @@ static void destroy_frame_queues(void)
     }
 }
 
-/* Allocate frame buffers and initialize the queues. */
 static esp_err_t initialize_frame_queues(void)
 {
     available_frame_slots = xQueueCreate(FRAME_BUFFER_COUNT, sizeof(uint8_t));
@@ -96,7 +120,6 @@ static esp_err_t initialize_frame_queues(void)
     return ESP_OK;
 }
 
-/* Copy a frame into an available buffer without blocking. */
 esp_err_t wifi_stream_submit_frame(
     uint32_t frame_sequence,
     const uint8_t *grayscale_pixels,
@@ -127,15 +150,24 @@ esp_err_t wifi_stream_submit_frame(
 }
 
 
-/*
- * Send a grayscale frame as indexed UDP packets.
+/**
+ * @brief Transmit one grayscale frame as indexed UDP packets.
  *
- * Header:
- *   0-3   "GRAY"
- *   4-7   Frame sequence, uint32 big-endian
- *   8-11  Frame size, uint32 big-endian
- *   12-13 Packet index, uint16 big-endian
- *   14-15 Total packets, uint16 big-endian
+ * Splits the frame into payload chunks and sends each chunk to the
+ * specified client address.
+ *
+ * Each packet contains a 16-byte header:
+ *
+ * | Offset | Size | Field |
+ * |--------|------|-------|
+ * | 0      | 4    | Magic identifier: "GRAY" |
+ * | 4      | 4    | Frame sequence, uint32 big-endian |
+ * | 8      | 4    | Frame size, uint32 big-endian |
+ * | 12     | 2    | Packet index, uint16 big-endian |
+ * | 14     | 2    | Total packet count, uint16 big-endian |
+ *
+ * The header is followed by up to FRAME_CHUNK_SIZE bytes of grayscale
+ * image data.
  */
 static int send_frame_udp(
     int socket_fd,
@@ -196,11 +228,19 @@ static int send_frame_udp(
     return 0;
 }
 
-/*
- * Accept HELLO datagrams during streaming.
+/**
+ * @brief Receive and process a PC registration heartbeat.
  *
- * A PC can register or update its receiving port by sending
- * the four ASCII bytes "HELO" to the camera's station IP on port 9000.
+ * Performs a non-blocking receive on the streaming socket. A valid
+ * registration datagram must contain exactly four bytes: "HELO".
+ *
+ * When valid, the sender address replaces the current client address.
+ * This allows the PC to update its receiving UDP port or register
+ * from a different source endpoint.
+ *
+ * @note Invalid datagrams are ignored.
+ * @note EAGAIN and EWOULDBLOCK indicate that no datagram is currently
+ *       available and are not treated as errors.
  */
 static bool update_client_addr(int socket_fd, struct sockaddr_in *client_addr)
 {
@@ -257,7 +297,6 @@ static void discard_queued_frames(void)
     }
 }
 
-/* Stream detections and frames to the registered PC. */
 static void stream_client_udp(int socket_fd, struct sockaddr_in client_addr)
 {
     TickType_t last_heartbeat_tick = xTaskGetTickCount();

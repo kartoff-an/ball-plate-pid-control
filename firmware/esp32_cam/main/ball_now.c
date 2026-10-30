@@ -1,3 +1,15 @@
+/**
+ * @file ball_now.c
+ * @brief ESP-NOW transmission implementation for ball measurements.
+ *
+ * @details
+ * Handles ESP-NOW initialization, peer registration, and transmission
+ * of ball detection measurements from the ESP32-CAM to the ESP32-S3.
+ *
+ * Uses the ESP32-CAM station interface to communicate with the registered
+ * ESP32-S3 peer over the shared Wi-Fi channel.
+ */
+
 #include <string.h>
 
 #include "ball_now.h"
@@ -9,6 +21,7 @@
 
 static const char *TAG = "BALL_NOW";
 
+/* MAC address of the ESP32-S3 receiver. */
 static uint8_t s_peer_mac[6];
 static bool s_initialized = false;
 
@@ -30,6 +43,7 @@ esp_err_t ball_now_init(const uint8_t peer_mac[6])
         return error;
     }
 
+    /* Configure the S3 as an unencrypted station-interface peer. */
     esp_now_peer_info_t peer = {0};
     memcpy(peer.peer_addr, s_peer_mac, sizeof(s_peer_mac));
     peer.ifidx = WIFI_IF_STA;

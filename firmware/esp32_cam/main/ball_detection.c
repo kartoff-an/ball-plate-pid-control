@@ -1,3 +1,17 @@
+/**
+ * @file ball_detection.c
+ * @brief Ball detection, candidate filtering, and position tracking.
+ *
+ * Implements the following processing pipeline:
+ * 1. Image thresholding.
+ * 2. Connected-component labeling using eight-connectivity.
+ * 3. Candidate filtering based on area and shape.
+ * 4. Candidate selection using component size or tracking distance.
+ * 5. Tracking loss handling.
+ * 6. Position smoothing.
+ * 7. Tracking state update.
+ */
+
 #include "ball_detection.h"
 
 #include <stdbool.h>
@@ -31,6 +45,13 @@ static float tracked_y;
 static uint8_t missed_frames;
 static bool tracking_reset_requested;
 
+/**
+ * @brief Represents a connected foreground component.
+ *
+ * Bounding-box coordinates are relative to the detection crop.
+ * Center coordinates include the crop offset and use camera-frame
+ * coordinates.
+ */
 typedef struct {
     bool valid;
     uint32_t area;

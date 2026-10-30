@@ -1,3 +1,27 @@
+/**
+ * @file wifi_station.c
+ * @brief Wi-Fi station initialization and connection management.
+ *
+ * Implements the ESP32 Wi-Fi station connection process.
+ *
+ * Initialization sequence:
+ * 1. Initialize NVS flash storage.
+ * 2. Initialize the network interface and default event loop.
+ * 3. Create the default Wi-Fi station network interface.
+ * 4. Create the connection event group.
+ * 5. Initialize the Wi-Fi driver.
+ * 6. Register Wi-Fi and IP event handlers.
+ * 7. Configure station credentials and authentication requirements.
+ * 8. Start Wi-Fi and disable power saving.
+ * 9. Wait until the station obtains an IP address.
+ *
+ * The event handler automatically attempts reconnection whenever
+ * the station becomes disconnected.
+ *
+ * @note This module uses blocking connection initialization.
+ * @note The station credentials are currently defined at compile time.
+ */
+
 #include "wifi_station.h"
 
 #include <stdio.h>
@@ -39,6 +63,21 @@ static esp_err_t init_nvs(void)
     return err;
 }
 
+/**
+ * @brief Handle Wi-Fi and IP events.
+ *
+ * Processes station lifecycle events:
+ *
+ * - WIFI_EVENT_STA_START:
+ *   Initiates the connection to the configured access point.
+ *
+ * - WIFI_EVENT_STA_DISCONNECTED:
+ *   Clears the connection event bit and attempts reconnection.
+ *
+ * - IP_EVENT_STA_GOT_IP:
+ *   Logs the assigned station IP address and gateway, then sets
+ *   WIFI_CONNECTED_BIT to signal successful network connectivity.
+ */
 static void wifi_event_handler(void *context, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     (void)context;
@@ -166,6 +205,10 @@ esp_err_t wifi_station_connect(void)
         return error;
     }
 
+     /**
+     * Disable Wi-Fi power saving to reduce latency and improve
+     * consistency for continuous camera streaming.
+     */
     error = esp_wifi_set_ps(WIFI_PS_NONE);
     if (error != ESP_OK) {
         ESP_LOGW(TAG, "Could not disable Wi-Fi power saving");

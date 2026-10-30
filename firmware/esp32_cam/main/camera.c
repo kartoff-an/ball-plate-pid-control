@@ -1,3 +1,21 @@
+/**
+ * @file camera.c
+ * @brief Camera hardware initialization and frame processing task.
+ *
+ * Configures the ESP32-CAM camera and manages the continuous
+ * capture pipeline:
+ * 1. Capture a grayscale frame.
+ * 2. Validate the captured frame.
+ * 3. Detect and track the ball.
+ * 4. Send the ball measurement to the ESP32-S3.
+ * 5. Submit the captured frame for UDP streaming.
+ * 6. Release the camera frame buffer.
+ *
+ * Detection performance statistics are reported periodically.
+ * Additional frame-cycle and detection information can be enabled
+ * through CAMERA_DEBUG.
+ */
+
 #include "camera.h"
 
 #include <stdint.h>
@@ -17,7 +35,7 @@
 #include "freertos/task.h"
 
 /*
- * AI Thinker ESP32-CAM pin configuration.
+ * ESP32-CAM pin configuration.
  */
 
 #define CAM_PIN_PWDN   32
@@ -104,6 +122,7 @@ static void camera_task(void *task_context)
 
     uint32_t frame_seq = 0;
 
+    /* Detection performance statistics. */
     int64_t last_fps_report_us = esp_timer_get_time();
     uint32_t processed_frames = 0;
     uint32_t total_processing_us = 0;

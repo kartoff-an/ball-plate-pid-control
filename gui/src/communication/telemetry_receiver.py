@@ -233,7 +233,7 @@ class TelemetryReceiver:
     thread. on_failed(message) is called if the socket stops working.
     """
 
-    def __init__(self, on_sample, on_rejected=None, on_failed=None, port=config.PC_TELEMETRY_PORT, host=""):
+    def __init__(self, on_sample, on_rejected=None, on_failed=None, port=config.PC_TELEMETRY_PORT, host=config.PC_TELEMETRY_HOST):
         self._on_sample = on_sample
         self._on_rejected = on_rejected
         self._on_failed = on_failed

@@ -1,0 +1,10 @@
+#ifndef CAMERA_CONFIG_H
+#define CAMERA_CONFIG_H
+
+#define CAMERA_FRAME_WIDTH          160
+#define CAMERA_FRAME_HEIGHT         120
+#define CAMERA_FRAME_SIZE           (CAMERA_FRAME_WIDTH * CAMERA_FRAME_HEIGHT)
+
+#define CAMERA_FRAME_INTERVAL_MS    0
+
+#endif

@@ -11,7 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define DETECTION_DEBUG     0
+#define DETECTION_DEBUG     1
 
 static const char *TAG = "BALL_PLATE";
 

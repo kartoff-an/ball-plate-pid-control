@@ -39,10 +39,10 @@ class BallPlateWindow(QWidget):
 
         self.telemetry = TelemetryWidget()
         self.plots = PlotsWidget()
-        self.esp_sender = ESPSender();
+        self.esp_sender = ESPSender()
         self.controller_panel = ControllerPanel(self.esp_sender)
 
-        self.calibrate_button = QPushButton("Calibrate Plate")
+        self.calibrate_button = QPushButton("Calibrate Vision")
         self.calibrate_button.clicked.connect(self.start_calibration)
 
         self.bridge = TelemetryBridge()
@@ -119,6 +119,9 @@ class BallPlateWindow(QWidget):
     def _on_sample(self, sample: TelemetrySample, stats: ReceiverStats):
         """Runs on the Qt thread after the bridge emits a sample."""
         self.latest_sample = sample
+        if hasattr(self, "calibration_page"):
+            self.calibration_page.set_ball_telemetry(sample)
+
         self.link_monitor.packet_received(time.monotonic())
 
         with state.app_state._lock:

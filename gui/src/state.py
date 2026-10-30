@@ -15,6 +15,7 @@ class BallState:
     y: Optional[float] = None
     measurement_age_ms: Optional[int] = None
     sequence: Optional[int] = None
+    received_at: Optional[float] = None
 
 @dataclass
 class PIDState:

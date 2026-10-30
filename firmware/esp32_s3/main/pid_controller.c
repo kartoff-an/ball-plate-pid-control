@@ -14,7 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define TELEMETRY_DEBUG             0
+#define TELEMETRY_DEBUG             1
 
 #define CONTROL_PERIOD_MS           10
 #define MAX_MEASUREMENT_AGE_MS      150
@@ -32,8 +32,8 @@
 #define TARGET_X_MM                 0.0f
 #define TARGET_Y_MM                 0.0f
 
-#define SERVO_X_CHANNEL             0
-#define SERVO_Y_CHANNEL             1
+#define SERVO_X_CHANNEL             1
+#define SERVO_Y_CHANNEL             0
 
 #define SERVO_NEUTRAL_US            2150
 #define SERVO_MIN_US                1500
@@ -261,10 +261,6 @@ static void control_task(void *arg)
             set_neutral();
         }
 
-        if (!controller_enabled) {
-            continue;
-        }
-
         ball_measurement_t measurement;
         int64_t age_ms = INT64_MAX;
 
@@ -310,7 +306,15 @@ static void control_task(void *arg)
             const float error_x = target_x_mm - ball_x_mm;
             const float error_y = target_y_mm - ball_y_mm;
 
-            if (!have_sequence) {
+            if (!controller_enabled) {
+                s_pid_x.integral = 0.0f;
+                s_pid_y.integral = 0.0f;
+                s_pid_x.previous_error = error_x;
+                s_pid_y.previous_error = error_y;
+                command_x_us = 0.0f;
+                command_y_us = 0.0f;
+            }
+            else if (!have_sequence) {
                 s_pid_x.previous_error = error_x;
                 s_pid_y.previous_error = error_y;
                 command_x_us = 0.0f;
@@ -346,7 +350,7 @@ static void control_task(void *arg)
                 .output_y_us = command_y_us,
                 .servo_x_us = safe_x_pulse,
                 .servo_y_us = safe_y_pulse,
-                .controller_enabled = CONTROL_OUTPUT_ENABLED
+                .controller_enabled = controller_enabled && CONTROL_OUTPUT_ENABLED
             };
             esp_err_t telemetry_error = telemetry_publish(&telemetry);
 

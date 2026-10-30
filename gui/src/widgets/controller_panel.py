@@ -1,6 +1,8 @@
 
 import logging
 
+import config
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -13,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from communication.esp_sender import ESPSender
+import state
 
 log = logging.getLogger(__name__)
 
@@ -30,8 +33,8 @@ class ControllerPanel(QWidget):
         target_box = QGroupBox("Target Position (mm)")
         target_layout = QGridLayout(target_box)
 
-        self.target_x = self._number_input(-110.0, 110.0, 0.0, 1.0, 1)
-        self.target_y = self._number_input(-110.0, 110.0, 0.0, 1.0, 1)
+        self.target_x = self._number_input(-config.HALF_PLATE_SIZE_MM, config.HALF_PLATE_SIZE_MM, 0.0, 1.0, 1)
+        self.target_y = self._number_input(-config.HALF_PLATE_SIZE_MM, config.HALF_PLATE_SIZE_MM, 0.0, 1.0, 1)
 
         target_layout.addWidget(QLabel("X"), 0, 0)
         target_layout.addWidget(self.target_x, 0, 1)
@@ -115,7 +118,13 @@ class ControllerPanel(QWidget):
         x = self.target_x.value()
         y = self.target_y.value()
 
-        self._run_command(f"target X={x:.1f}, Y={y:.1f} mm", lambda: self.sender.set_target(x, y))
+        def update_target():
+            self.sender.set_target(x, y)
+            with state.app_state._lock:
+                state.app_state.target.x = x
+                state.app_state.target.y = y
+
+        self._run_command(f"target X={x:.1f}, Y={y:.1f} mm", update_target)
 
     def _apply_gains(self):
         kp_x = self.gains["kp_x"].value()

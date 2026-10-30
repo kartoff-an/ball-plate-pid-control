@@ -58,10 +58,11 @@
 #define SERVO_X_CHANNEL             1
 #define SERVO_Y_CHANNEL             0
 
-#define SERVO_NEUTRAL_US            2150
+#define SERVO_NEUTRAL_X_US          2150
+#define SERVO_NEUTRAL_Y_US          2300
 #define SERVO_MIN_US                1500
 #define SERVO_MAX_US                2500
-#define SERVO_MAX_CORRECTION_US     80.0f
+#define SERVO_MAX_CORRECTION_US     120.0f
 
 #define PID_KP_MAX                  10.0f
 #define PID_KI_MAX                  10.0f
@@ -75,10 +76,10 @@
 #define KI_Y                        0.0f
 #define KD_Y                        0.0f
 
-#define SERVO_X_SIGN                1.0f
-#define SERVO_Y_SIGN                1.0f
+#define SERVO_X_SIGN                -1.0f
+#define SERVO_Y_SIGN                -1.0f
 
-#define CONTROL_OUTPUT_ENABLED      0
+#define CONTROL_OUTPUT_ENABLED      1
 
 #define CONTROL_TASK_STACK_SIZE    4096
 #define CONTROL_TASK_PRIORITY      6
@@ -227,8 +228,8 @@ static float pid_update(pid_axis_t *pid, float error, float dt_seconds)
 
 static esp_err_t set_neutral(void)
 {
-    esp_err_t x_error = pca9685_set_pulse_us(SERVO_X_CHANNEL, SERVO_NEUTRAL_US);
-    esp_err_t y_error = pca9685_set_pulse_us(SERVO_Y_CHANNEL, SERVO_NEUTRAL_US);
+    esp_err_t x_error = pca9685_set_pulse_us(SERVO_X_CHANNEL, SERVO_NEUTRAL_X_US);
+    esp_err_t y_error = pca9685_set_pulse_us(SERVO_Y_CHANNEL, SERVO_NEUTRAL_Y_US);
     return x_error != ESP_OK ? x_error : y_error;
 }
 
@@ -355,8 +356,8 @@ static void control_task(void *arg)
             previous_update_us = now_us;
             have_sequence = true;
 
-            const int x_pulse = (int)(SERVO_NEUTRAL_US + SERVO_X_SIGN * command_x_us);
-            const int y_pulse = (int)(SERVO_NEUTRAL_US + SERVO_Y_SIGN * command_y_us);
+            const int x_pulse = (int)(SERVO_NEUTRAL_X_US + SERVO_X_SIGN * command_x_us);
+            const int y_pulse = (int)(SERVO_NEUTRAL_Y_US + SERVO_Y_SIGN * command_y_us);
             const uint16_t safe_x_pulse = (uint16_t)
                 (x_pulse < SERVO_MIN_US ? SERVO_MIN_US :
                  x_pulse > SERVO_MAX_US ? SERVO_MAX_US : x_pulse);

@@ -49,8 +49,8 @@ BALL_MARKER_RADIUS_PX = 3
 
 TELEMETRY_TIMEOUT_S = 0.5
 
-TARGET_X = CROP_LEFT + CROP_WIDTH / 2
-TARGET_Y = CROP_TOP + CROP_HEIGHT / 2
+TARGET_X = config.mm_to_pixels(0.0, config.PLATE_CENTER_X_PX)
+TARGET_Y = config.mm_to_pixels(0.0, config.PLATE_CENTER_Y_PX)
 
 VISION_CONFIG_PATH = Path(__file__).resolve().parents[1] / "vision_tuning.json"
 
@@ -148,9 +148,16 @@ class CameraPreviewLabel(QLabel):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(crop_rect)
 
-        # Target position.
-        target_x = map_x(TARGET_X)
-        target_y = map_y(TARGET_Y)
+        # Target position in plate millimeters; convert to camera pixels using the
+        # same center-based origin as the firmware.
+        with app_state._lock:
+            target_x_mm = app_state.target.x
+            target_y_mm = app_state.target.y
+
+        target_x_px = config.mm_to_pixels(target_x_mm, config.PLATE_CENTER_X_PX)
+        target_y_px = config.mm_to_pixels(target_y_mm, config.PLATE_CENTER_Y_PX)
+        target_x = map_x(target_x_px)
+        target_y = map_y(target_y_px)
         radius = TARGET_RADIUS_PX * scale
 
         painter.drawEllipse(

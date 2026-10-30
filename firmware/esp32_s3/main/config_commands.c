@@ -172,6 +172,8 @@ static void handle_control(int sock, const cJSON *root, const struct sockaddr_in
 
     esp_err_t err;
 
+    ESP_LOGI(TAG, "Control command received: %s", command->valuestring);
+
     if (strcmp(command->valuestring, "start") == 0) {
         err = pid_controller_start();
 

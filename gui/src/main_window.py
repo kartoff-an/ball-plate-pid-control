@@ -20,6 +20,8 @@ from widgets.plots import PlotsWidget
 from widgets.telemetry import TelemetryWidget
 from widgets.controller_panel import ControllerPanel
 
+import config
+
 log = logging.getLogger(__name__)
 
 def _log_telemetry_status(self, message: str):
@@ -192,10 +194,10 @@ class BallPlateWindow(QWidget):
         if sample.sequence == self.last_plotted_sequence:
             return
 
-        ball_px = (sample.ball_x, sample.ball_y)
-
-        # TODO: convert from px to mm
-        measured_mm = ball_px
+        measured_mm = (
+            config.pixels_to_mm(sample.ball_x, config.PLATE_CENTER_X_PX),
+            config.pixels_to_mm(sample.ball_y, config.PLATE_CENTER_Y_PX),
+        )
 
         with state.app_state._lock:
             target_x = state.app_state.target.x

@@ -1,4 +1,3 @@
-
 import logging
 
 import config
@@ -12,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QDoubleSpinBox,
+    QSpinBox,
 )
 
 from communication.esp_sender import ESPSender
@@ -33,17 +33,33 @@ class ControllerPanel(QWidget):
         target_box = QGroupBox("Target Position (mm)")
         target_layout = QGridLayout(target_box)
 
-        self.target_x = self._number_input(-config.HALF_PLATE_SIZE_MM, config.HALF_PLATE_SIZE_MM, 0.0, 1.0, 1)
-        self.target_y = self._number_input(-config.HALF_PLATE_SIZE_MM, config.HALF_PLATE_SIZE_MM, 0.0, 1.0, 1)
+        self.target_x = self._number_input(-110.0, 110.0, 0.0, 1.0, 1)
+        self.target_y = self._number_input(-110.0, 110.0, 0.0, 1.0, 1)
 
         target_layout.addWidget(QLabel("X"), 0, 0)
         target_layout.addWidget(self.target_x, 0, 1)
-        target_layout.addWidget(QLabel("Y"), 1, 0)
-        target_layout.addWidget(self.target_y, 1, 1)
+        target_layout.addWidget(QLabel("Y"), 0, 2)
+        target_layout.addWidget(self.target_y, 0, 3)
 
         self.target_button = QPushButton("Set Target")
         self.target_button.clicked.connect(self._set_target)
-        target_layout.addWidget(self.target_button, 2, 0, 1, 2)
+        target_layout.addWidget(self.target_button, 1, 0, 1, 4)
+
+        # Servo neutral calibration
+        servo_box = QGroupBox("Servo Neutral Calibration")
+        servo_layout = QGridLayout(servo_box)
+
+        self.servo_neutral_x = self._integer_input(1000, 2000, 1450, 5)
+        self.servo_neutral_y = self._integer_input(1000, 2000, 1500, 5)
+
+        servo_layout.addWidget(QLabel("X (CH1)"), 0, 0)
+        servo_layout.addWidget(self.servo_neutral_x, 0, 1)
+        servo_layout.addWidget(QLabel("Y (CH0)"), 0, 2)
+        servo_layout.addWidget(self.servo_neutral_y, 0, 3)
+
+        self.apply_neutral_button = QPushButton("Apply Neutral")
+        self.apply_neutral_button.clicked.connect(self._apply_servo_neutral)
+        servo_layout.addWidget(self.apply_neutral_button, 1, 0, 1, 4)
 
         # PID gains
         pid_box = QGroupBox("PID Gains")
@@ -91,7 +107,12 @@ class ControllerPanel(QWidget):
         actions_layout.addWidget(self.reset_button)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(target_box)
+
+        calibration_layout = QHBoxLayout()
+        calibration_layout.addWidget(target_box)
+        calibration_layout.addWidget(servo_box)
+
+        layout.addLayout(calibration_layout)
         layout.addWidget(pid_box)
         layout.addWidget(actions_box)
         layout.addWidget(self.status_label)
@@ -103,6 +124,15 @@ class ControllerPanel(QWidget):
         spin.setValue(default_value)
         spin.setSingleStep(step)
         spin.setDecimals(decimals)
+        return spin
+
+    @staticmethod
+    def _integer_input(minimum, maximum, default_value, step):
+        spin = QSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setValue(default_value)
+        spin.setSingleStep(step)
+        spin.setSuffix(" us")
         return spin
 
     def _run_command(self, description, callback):
@@ -125,6 +155,15 @@ class ControllerPanel(QWidget):
                 state.app_state.target.y = y
 
         self._run_command(f"target X={x:.1f}, Y={y:.1f} mm", update_target)
+
+    def _apply_servo_neutral(self):
+        x_us = self.servo_neutral_x.value()
+        y_us = self.servo_neutral_y.value()
+
+        self._run_command(
+            f"servo neutral X={x_us}, Y={y_us} us",
+            lambda: self.sender.set_servo_neutral(x_us, y_us),
+        )
 
     def _apply_gains(self):
         kp_x = self.gains["kp_x"].value()

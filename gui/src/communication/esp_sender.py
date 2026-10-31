@@ -53,6 +53,13 @@ class ESPSender:
             }
         })
 
+    def set_servo_neutral(  self, neutral_x_us, neutral_y_us):
+        self.send({
+            "type": "servo_calibration",
+            "neutral_x_us": int(neutral_x_us),
+            "neutral_y_us": int(neutral_y_us)
+        })
+
     def start(self) -> None:
         """Request that the controller starts."""
         self.send({

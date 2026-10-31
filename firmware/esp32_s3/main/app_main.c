@@ -59,8 +59,8 @@ void app_main(void)
     ESP_ERROR_CHECK(telemetry_init());
 
     ESP_ERROR_CHECK(pca9685_init(12, 13));
-    ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 2200));
-    ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 2200));
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
 
     ESP_ERROR_CHECK(ball_receiver_init());
 

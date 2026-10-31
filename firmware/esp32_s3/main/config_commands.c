@@ -206,6 +206,44 @@ static void handle_control(int sock, const cJSON *root, const struct sockaddr_in
     }
 }
 
+static void handle_servo_calibration(int sock, const cJSON *root, const struct sockaddr_in *client, socklen_t client_len)
+{
+    double x_us;
+    double y_us;
+
+    if (!get_number(root, "neutral_x_us", &x_us) || !get_number(root, "neutral_y_us", &y_us)) {
+        send_ack(sock, client, client_len, false,
+            "servo calibration requires numeric neutral_x_us and neutral_y_us"
+        );
+        return;
+    }
+
+    if (floor(x_us) != x_us || floor(y_us) != y_us ||
+        x_us < 1000.0 || x_us > 2000.0 ||
+        y_us < 1000.0 || y_us > 2000.0
+    ) {
+        send_ack(sock, client, client_len, false,
+            "servo neutral must be an integer between 1000 and 2000 us"
+        );
+        return;
+    }
+
+    esp_err_t error = pid_controller_set_servo_neutral((uint16_t)x_us, (uint16_t)y_us);
+
+    if (error != ESP_OK) {
+        send_ack(sock, client, client_len, false,
+            "failed to update servo calibration"
+        );
+        return;
+    }
+
+    ESP_LOGI(TAG, "Servo calibration updated: X=%.0f us &=%.0f us", x_us, y_us);
+
+    send_ack(sock, client, client_len, false,
+        "servo calibration updated"
+    );
+}
+
 static void handle_message(int sock, char *buffer, const struct sockaddr_in *client, socklen_t client_len)
 {
     cJSON *root = cJSON_Parse(buffer);
@@ -232,6 +270,9 @@ static void handle_message(int sock, char *buffer, const struct sockaddr_in *cli
 
     } else if (strcmp(type->valuestring, "pid_config") == 0) {
         handle_pid_config(sock, root, client, client_len);
+
+    } else if (strcmp(type->valuestring, "servo_calibration") == 0) {
+        handle_servo_calibration(sock, root, client, client_len);
 
     } else if (strcmp(type->valuestring, "control") == 0) {
         handle_control(sock, root, client, client_len);

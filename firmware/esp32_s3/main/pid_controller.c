@@ -30,6 +30,7 @@
 #include "ball_measurement.h"
 #include "pca9685.h"
 #include "telemetry.h"
+#include "kalman_filter.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -58,11 +59,12 @@
 #define SERVO_X_CHANNEL             1
 #define SERVO_Y_CHANNEL             0
 
-#define SERVO_NEUTRAL_X_US          2150
-#define SERVO_NEUTRAL_Y_US          2300
-#define SERVO_MIN_US                1500
-#define SERVO_MAX_US                2500
+#define SERVO_NEUTRAL_X_US          1450
+#define SERVO_NEUTRAL_Y_US          1500
+#define SERVO_MIN_US                1000
+#define SERVO_MAX_US                2000
 #define SERVO_MAX_CORRECTION_US     120.0f
+#define SERVO_MAX_SLEW_US_PER_SEC   600.0f
 
 #define PID_KP_MAX                  10.0f
 #define PID_KI_MAX                  10.0f
@@ -91,16 +93,21 @@ static portMUX_TYPE s_pid_config_mux = portMUX_INITIALIZER_UNLOCKED;
 static float s_target_x_mm = 0.0f;
 static float s_target_y_mm = 0.0f;
 
+static kalman_filter_t s_ball_filter;
+
 static bool s_controller_enabled = false;
 static bool s_reset_requested = false;
 static bool s_neutral_requested = false;
+
+static uint16_t s_servo_neutral_x_us = SERVO_NEUTRAL_X_US;
+static uint16_t s_servo_neutral_y_us = SERVO_NEUTRAL_Y_US;
+
 
 typedef struct {
     float kp;
     float ki;
     float kd;
     float integral;
-    float previous_error;
     float output_limit;
 } pid_axis_t;
 
@@ -193,11 +200,10 @@ esp_err_t pid_controller_get_gains(pid_axis_id_t axis, pid_gains_t *gains)
     return ESP_OK;
 }
 
-static float pid_update(pid_axis_t *pid, float error, float dt_seconds)
+static float pid_update(pid_axis_t *pid, float error, float velocity_mm_s, float dt_seconds)
 {
     if (dt_seconds <= 0.0f || dt_seconds > 0.25f) {
         pid->integral = 0.0f;
-        pid->previous_error = error;
         return 0.0f;
     }
 
@@ -211,25 +217,35 @@ static float pid_update(pid_axis_t *pid, float error, float dt_seconds)
     kd = pid->kd;
     portEXIT_CRITICAL(&s_pid_config_mux);
 
-    const float derivative = (error - pid->previous_error) / dt_seconds;
+    const float derivative = -velocity_mm_s;
     const float proposed_integral = clampf(pid->integral + error * dt_seconds, -100.0f, 100.0f);
-    float output = kp * error + ki * proposed_integral + kd * derivative;
+    float candidate_output = kp * error + ki * proposed_integral + kd * derivative;
+
+    bool saturated_high = candidate_output > pid->output_limit;
+    bool saturated_low = candidate_output < -pid->output_limit;
+    bool drives_further_into_saturation = (saturated_high && error > 0.0f) || (saturated_low && error < 0.0f);
 
     // prevent the integral from winding up against output limits
-    if (output <= pid->output_limit && output >= -pid->output_limit) {
+    if (!drives_further_into_saturation) {
         pid->integral = proposed_integral;
     }
 
-    output = kp * error + ki * pid->integral + kd * derivative;
-    pid->previous_error = error;
+    float output = kp * error + ki * pid->integral + kd * derivative;
 
     return clampf(output, -pid->output_limit, pid->output_limit);
 }
 
-static esp_err_t set_neutral(void)
+static float limit_slew(float target, float current, float dt)
 {
-    esp_err_t x_error = pca9685_set_pulse_us(SERVO_X_CHANNEL, SERVO_NEUTRAL_X_US);
-    esp_err_t y_error = pca9685_set_pulse_us(SERVO_Y_CHANNEL, SERVO_NEUTRAL_Y_US);
+    float max_change = SERVO_MAX_SLEW_US_PER_SEC * dt;
+    return current + clampf(target - current, -max_change, max_change);
+}
+
+static esp_err_t set_neutral(uint16_t x_us, uint16_t y_us)
+{
+    esp_err_t x_error = pca9685_set_pulse_us(SERVO_X_CHANNEL, x_us);
+    esp_err_t y_error = pca9685_set_pulse_us(SERVO_Y_CHANNEL, y_us);
+
     return x_error != ESP_OK ? x_error : y_error;
 }
 
@@ -256,6 +272,8 @@ static void control_task(void *arg)
         bool neutral_requested;
         float target_x_mm;
         float target_y_mm;
+        uint16_t neutral_x_us;
+        uint16_t neutral_y_us;
 
         portENTER_CRITICAL(&s_pid_config_mux);
 
@@ -269,13 +287,16 @@ static void control_task(void *arg)
         target_x_mm = s_target_x_mm;
         target_y_mm = s_target_y_mm;
 
+        neutral_x_us = s_servo_neutral_x_us;
+        neutral_y_us = s_servo_neutral_y_us;
+
         portEXIT_CRITICAL(&s_pid_config_mux);
 
         if (reset_requested) {
+            kalman_filter_reset(&s_ball_filter);
+
             s_pid_x.integral = 0.0f;
             s_pid_y.integral = 0.0f;
-            s_pid_x.previous_error = 0.0f;
-            s_pid_y.previous_error = 0.0f;
 
             have_sequence = false;
             previous_update_us = 0;
@@ -285,7 +306,7 @@ static void control_task(void *arg)
         }
 
         if (neutral_requested) {
-            set_neutral();
+            set_neutral(neutral_x_us, neutral_y_us);
         }
 
         ball_measurement_t measurement;
@@ -304,12 +325,14 @@ static void control_task(void *arg)
             command_x_us = 0.0f;
             command_y_us = 0.0f;
 
+            kalman_filter_reset(&s_ball_filter);
+
             s_pid_x.integral = 0.0f;
             s_pid_y.integral = 0.0f;
             have_sequence = false;
 
             if (CONTROL_OUTPUT_ENABLED) {
-                esp_err_t error = set_neutral();
+                esp_err_t error = set_neutral(neutral_x_us, neutral_y_us);
                 if (error != ESP_OK) {
                     ESP_LOGE(TAG, "Neutral command failed: %s", esp_err_to_name(error));
                 }
@@ -327,8 +350,25 @@ static void control_task(void *arg)
                 dt_seconds = (float)(now_us - previous_update_us) / 1000000.0f;
             }
 
-            const float ball_x_mm = pixels_to_mm((float)measurement.center_x, PLATE_CENTER_X_PX);
-            const float ball_y_mm = pixels_to_mm((float)measurement.center_y, PLATE_CENTER_Y_PX);
+            const float measured_x_mm = pixels_to_mm((float)measurement.center_x, PLATE_CENTER_X_PX);
+            const float measured_y_mm = pixels_to_mm((float)measurement.center_y, PLATE_CENTER_Y_PX);
+
+            if (!kalman_filter_update(&s_ball_filter, measured_x_mm, measured_y_mm, dt_seconds)) {
+                continue;
+            }
+
+            float ball_x_mm;
+            float ball_y_mm;
+            float ball_vx_mm_s;
+            float ball_vy_mm_s;
+
+            kalman_filter_get_state(
+                &s_ball_filter,
+                &ball_x_mm,
+                &ball_y_mm,
+                &ball_vx_mm_s,
+                &ball_vy_mm_s
+            );
 
             const float error_x = target_x_mm - ball_x_mm;
             const float error_y = target_y_mm - ball_y_mm;
@@ -336,28 +376,35 @@ static void control_task(void *arg)
             if (!controller_enabled) {
                 s_pid_x.integral = 0.0f;
                 s_pid_y.integral = 0.0f;
-                s_pid_x.previous_error = error_x;
-                s_pid_y.previous_error = error_y;
+
                 command_x_us = 0.0f;
                 command_y_us = 0.0f;
             }
             else if (!have_sequence) {
-                s_pid_x.previous_error = error_x;
-                s_pid_y.previous_error = error_y;
+                s_pid_x.integral = 0.0f;
+                s_pid_y.integral = 0.0f;
                 command_x_us = 0.0f;
                 command_y_us = 0.0f;
             }
             else {
-                command_x_us = pid_update(&s_pid_x, error_x, dt_seconds);
-                command_y_us = pid_update(&s_pid_y, error_y, dt_seconds);
+                command_x_us = limit_slew(
+                    pid_update(&s_pid_x, error_x, ball_vx_mm_s, dt_seconds),
+                    command_x_us,
+                    dt_seconds
+                );
+                command_y_us = limit_slew(
+                    pid_update(&s_pid_y, error_y, ball_vy_mm_s, dt_seconds),
+                    command_y_us,
+                    dt_seconds
+                );
             }
 
             previous_sequence = measurement.sequence;
             previous_update_us = now_us;
             have_sequence = true;
 
-            const int x_pulse = (int)(SERVO_NEUTRAL_X_US + SERVO_X_SIGN * command_x_us);
-            const int y_pulse = (int)(SERVO_NEUTRAL_Y_US + SERVO_Y_SIGN * command_y_us);
+            const int x_pulse = (int)(neutral_x_us + SERVO_X_SIGN * command_x_us);
+            const int y_pulse = (int)(neutral_y_us + SERVO_Y_SIGN * command_y_us);
             const uint16_t safe_x_pulse = (uint16_t)
                 (x_pulse < SERVO_MIN_US ? SERVO_MIN_US :
                  x_pulse > SERVO_MAX_US ? SERVO_MAX_US : x_pulse);
@@ -393,7 +440,7 @@ static void control_task(void *arg)
 
                 if (x_error != ESP_OK || y_error != ESP_OK) {
                     ESP_LOGE(TAG, "Servo update failed");
-                    (void)set_neutral();
+                    (void)set_neutral(neutral_x_us, neutral_y_us);
                 }
             }
         }
@@ -402,6 +449,8 @@ static void control_task(void *arg)
 
 esp_err_t pid_controller_init(void)
 {
+    kalman_filter_init(&s_ball_filter);
+
     BaseType_t result = xTaskCreate(
         control_task,
         "pid_control",
@@ -444,7 +493,9 @@ esp_err_t pid_controller_start(void)
 
 esp_err_t pid_controller_reset(void)
 {
+    portENTER_CRITICAL(&s_pid_config_mux);
     s_reset_requested = true;
+    portEXIT_CRITICAL(&s_pid_config_mux);
     return ESP_OK;
 }
 
@@ -454,6 +505,27 @@ esp_err_t pid_controller_stop(void)
     s_controller_enabled = false;
     s_neutral_requested = true;
     portEXIT_CRITICAL(&s_pid_config_mux);
+
+    return ESP_OK;
+}
+
+esp_err_t pid_controller_set_servo_neutral(uint16_t x_us, uint16_t y_us)
+{
+    if (x_us < SERVO_MIN_US || x_us > SERVO_MAX_US || y_us < SERVO_MIN_US || y_us > SERVO_MAX_US) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&s_pid_config_mux);
+
+    s_servo_neutral_x_us = x_us;
+    s_servo_neutral_y_us = y_us;
+
+    s_reset_requested = true;
+    s_neutral_requested = true;
+
+    portEXIT_CRITICAL(&s_pid_config_mux);
+
+    ESP_LOGI(TAG, "Servo neutral updated: X=%u us Y=%u us", x_us, y_us);
 
     return ESP_OK;
 }

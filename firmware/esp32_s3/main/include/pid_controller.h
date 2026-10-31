@@ -149,4 +149,6 @@ esp_err_t pid_controller_reset(void);
  */
 bool pid_controller_is_enabled(void);
 
+esp_err_t pid_controller_set_servo_neutral(uint16_t x_us, uint16_t y_us);
+
 #endif /* PID_CONTROLLER_H*/

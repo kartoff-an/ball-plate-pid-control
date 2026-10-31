@@ -43,6 +43,9 @@ class PlotsWidget(QWidget):
             plot.showGrid(x=True, y=True, alpha=0.3)
             plot.addLegend(offset=(10, 10))
 
+            plot.setYRange(-110, 110, padding=0)
+            plot.enableAutoRange(axis=pg.ViewBox.YAxis, enable=False)
+
         def solid(color):
             return pg.mkPen(color, width=2)
 

@@ -40,8 +40,10 @@ class BallPlateWindow(QWidget):
         self.resize(1200, 750)
 
         self.telemetry = TelemetryWidget()
+        self.telemetry.setVisible(False)
         self.plots = PlotsWidget()
         self.esp_sender = ESPSender()
+        self.plots.mode_changed.connect(self.esp_sender.set_telemetry_mode)
         self.controller_panel = ControllerPanel(self.esp_sender)
 
         self.calibrate_button = QPushButton("Calibrate Vision")
@@ -88,7 +90,6 @@ class BallPlateWindow(QWidget):
 
         left_layout = QVBoxLayout()
         left_layout.addLayout(self.preview_header)
-        left_layout.addWidget(self.telemetry, stretch=3)
         left_layout.addWidget(self.controller_panel, stretch=3)
 
         main_layout = QHBoxLayout(self.dashboard_page)
@@ -121,8 +122,6 @@ class BallPlateWindow(QWidget):
     def _on_sample(self, sample: TelemetrySample, stats: ReceiverStats):
         """Runs on the Qt thread after the bridge emits a sample."""
         self.latest_sample = sample
-        if hasattr(self, "calibration_page"):
-            self.calibration_page.set_ball_telemetry(sample)
 
         self.link_monitor.packet_received(time.monotonic())
 
@@ -130,8 +129,8 @@ class BallPlateWindow(QWidget):
             state.app_state.connection.connected = True
             state.app_state.connection.last_error = None
             state.app_state.ball.detected = sample.ball_detected
-            state.app_state.ball.x = sample.ball_x
-            state.app_state.ball.y = sample.ball_y
+            state.app_state.ball.x = sample.ball_x_mm
+            state.app_state.ball.y = sample.ball_y_mm
             state.app_state.ball.measurement_age_ms = sample.measurement_age_ms
             state.app_state.ball.sequence = sample.sequence
 
@@ -194,18 +193,16 @@ class BallPlateWindow(QWidget):
         if sample.sequence == self.last_plotted_sequence:
             return
 
-        measured_mm = (
-            config.pixels_to_mm(sample.ball_x, config.PLATE_CENTER_X_PX),
-            config.pixels_to_mm(sample.ball_y, config.PLATE_CENTER_Y_PX),
-        )
+        measured_mm = (sample.ball_x_mm, sample.ball_y_mm)
+        target_mm = (sample.target_x_mm, sample.target_y_mm)
 
-        with state.app_state._lock:
-            target_x = state.app_state.target.x
-            target_y = state.app_state.target.y
+        # with state.app_state._lock:
+        #     target_x = state.app_state.target.x
+        #     target_y = state.app_state.target.y
 
-        target_mm = (target_x, target_y)
+        # target_mm = (target_x, target_y)
 
-        self.plots.add_sample(elapsed, measured_mm, target_mm)
+        self.plots.add_sample(elapsed, measured_mm, target_mm, sample=sample)
         self.last_plotted_sequence = sample.sequence
 
     def _update_link_status(self):

@@ -372,6 +372,8 @@ static void control_task(void *arg)
 
             const float error_x = target_x_mm - ball_x_mm;
             const float error_y = target_y_mm - ball_y_mm;
+            float pid_output_x_us = 0.0f;
+            float pid_output_y_us = 0.0f;
 
             if (!controller_enabled) {
                 s_pid_x.integral = 0.0f;
@@ -387,16 +389,10 @@ static void control_task(void *arg)
                 command_y_us = 0.0f;
             }
             else {
-                command_x_us = limit_slew(
-                    pid_update(&s_pid_x, error_x, ball_vx_mm_s, dt_seconds),
-                    command_x_us,
-                    dt_seconds
-                );
-                command_y_us = limit_slew(
-                    pid_update(&s_pid_y, error_y, ball_vy_mm_s, dt_seconds),
-                    command_y_us,
-                    dt_seconds
-                );
+                pid_output_x_us = pid_update(&s_pid_x, error_x, ball_vx_mm_s, dt_seconds);
+                pid_output_y_us = pid_update(&s_pid_y, error_y, ball_vy_mm_s, dt_seconds);
+                command_x_us = limit_slew(pid_output_x_us, command_x_us, dt_seconds);
+                command_y_us = limit_slew(pid_output_y_us, command_y_us, dt_seconds);
             }
 
             previous_sequence = measurement.sequence;
@@ -405,6 +401,8 @@ static void control_task(void *arg)
 
             const int x_pulse = (int)(neutral_x_us + SERVO_X_SIGN * command_x_us);
             const int y_pulse = (int)(neutral_y_us + SERVO_Y_SIGN * command_y_us);
+            const bool servo_saturated_x = x_pulse < SERVO_MIN_US || x_pulse > SERVO_MAX_US;
+            const bool servo_saturated_y = y_pulse < SERVO_MIN_US || y_pulse > SERVO_MAX_US;
             const uint16_t safe_x_pulse = (uint16_t)
                 (x_pulse < SERVO_MIN_US ? SERVO_MIN_US :
                  x_pulse > SERVO_MAX_US ? SERVO_MAX_US : x_pulse);
@@ -414,16 +412,37 @@ static void control_task(void *arg)
 
             telemetry_data_t telemetry = {
                 .sequence = s_telemetry_sequence++,
+                .timestamp_us = now_us,
+
                 .ball_detected = measurement.detected == 1,
-                .ball_x = measurement.center_x,
-                .ball_y = measurement.center_y,
+                .ball_x_mm = measurement.center_x,
+                .ball_y_mm = measurement.center_y,
                 .measurement_age_ms = age_ms,
-                .error_x = error_x,
-                .error_y = error_y,
+
+                .target_x_mm = target_x_mm,
+                .target_y_mm = target_y_mm,
+
+                .error_x_mm = error_x,
+                .error_y_mm = error_y,
+
+                .velocity_x_mm_s = ball_vx_mm_s,
+                .velocity_y_mm_s = ball_vy_mm_s,
+
+                .pid_output_x_us = pid_output_x_us,
+                .pid_output_y_us = pid_output_y_us,
+
                 .output_x_us = command_x_us,
                 .output_y_us = command_y_us,
+
+                .servo_neutral_x_us = neutral_x_us,
+                .servo_neutral_y_us = neutral_y_us,
+
                 .servo_x_us = safe_x_pulse,
                 .servo_y_us = safe_y_pulse,
+
+                .servo_saturated_x = servo_saturated_x,
+                .servo_saturated_y = servo_saturated_y,
+
                 .controller_enabled = controller_enabled && CONTROL_OUTPUT_ENABLED
             };
             esp_err_t telemetry_error = telemetry_publish(&telemetry);

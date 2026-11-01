@@ -60,6 +60,15 @@ class ESPSender:
             "neutral_y_us": int(neutral_y_us)
         })
 
+    def set_telemetry_mode(self, mode: str):
+        if mode not in ("position", "velocity", "servo"):
+            raise ValueError("Invalid telemetry mode.")
+
+        self.send({
+            "type": "telemetry_mode",
+            "mode": mode
+        })
+
     def start(self) -> None:
         """Request that the controller starts."""
         self.send({

@@ -57,6 +57,7 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP32-S3 AP is ready");
 
     ESP_ERROR_CHECK(telemetry_init());
+    ESP_ERROR_CHECK(telemetry_set_mode(TELEMETRY_MODE_POSITION));
 
     ESP_ERROR_CHECK(pca9685_init(12, 13));
     ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));

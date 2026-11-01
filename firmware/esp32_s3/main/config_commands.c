@@ -16,6 +16,8 @@
  */
 
 #include "config_commands.h"
+#include "pid_controller.h"
+#include "telemetry.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -244,6 +246,42 @@ static void handle_servo_calibration(int sock, const cJSON *root, const struct s
     );
 }
 
+static void handle_telemetry_mode(int sock, const cJSON *root, const struct sockaddr_in *client, socklen_t client_len)
+{
+    const cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "mode");
+
+    if (!cJSON_IsString(mode) || mode->valuestring == NULL) {
+        send_ack(sock, client, client_len, false, "telemetry mode requires a mode string");
+        return;
+    }
+
+    telemetry_mode_t telemetry_mode;
+
+    if (strcmp(mode->valuestring, "position") == 0) {
+        telemetry_mode = TELEMETRY_MODE_POSITION;
+
+    } else if (strcmp(mode->valuestring, "velocity") == 0) {
+        telemetry_mode = TELEMETRY_MODE_VELOCITY;
+
+    } else if (strcmp(mode->valuestring, "servo") == 0) {
+        telemetry_mode = TELEMETRY_MODE_SERVO;
+
+    } else {
+        send_ack(sock, client, client_len, false, "unknown telemetry mode");
+        return;
+    }
+
+    esp_err_t err = telemetry_set_mode(telemetry_mode);
+
+    if (err != ESP_OK) {
+        send_ack(sock, client, client_len, false, "failed to update telemetry mode");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Telemetry mode changed to: %s", mode->valuestring);
+    send_ack(sock, client, client_len, true, "telemetry mode updated");
+}
+
 static void handle_message(int sock, char *buffer, const struct sockaddr_in *client, socklen_t client_len)
 {
     cJSON *root = cJSON_Parse(buffer);
@@ -276,6 +314,9 @@ static void handle_message(int sock, char *buffer, const struct sockaddr_in *cli
 
     } else if (strcmp(type->valuestring, "control") == 0) {
         handle_control(sock, root, client, client_len);
+
+    } else if (strcmp(type->valuestring, "telemetry_mode") == 0) {
+        handle_telemetry_mode(sock, root, client, client_len);
 
     } else {
         send_ack(sock, client, client_len, false, "unknown message type");

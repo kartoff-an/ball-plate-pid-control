@@ -151,4 +151,8 @@ bool pid_controller_is_enabled(void);
 
 esp_err_t pid_controller_set_servo_neutral(uint16_t x_us, uint16_t y_us);
 
+esp_err_t pid_controller_set_kalman_config(float measurement_variance, float acceleration_variance);
+
+esp_err_t pid_controller_get_kalman_config(float *measurement_variance, float *acceleration_variance);
+
 #endif /* PID_CONTROLLER_H*/

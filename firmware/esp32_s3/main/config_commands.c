@@ -241,9 +241,46 @@ static void handle_servo_calibration(int sock, const cJSON *root, const struct s
 
     ESP_LOGI(TAG, "Servo calibration updated: X=%.0f us &=%.0f us", x_us, y_us);
 
-    send_ack(sock, client, client_len, false,
+    send_ack(sock, client, client_len, true,
         "servo calibration updated"
     );
+}
+
+static void handle_kalman_config(int sock, const cJSON *root, const struct sockaddr_in *client, socklen_t client_len)
+{
+    double measurement_variance;
+    double acceleration_variance;
+
+    if (!get_number(root, "measurement_variance", &measurement_variance) ||
+        !get_number(root, "acceleration_variance", &acceleration_variance)) {
+        send_ack(sock, client, client_len, false,
+            "kalman config requires numeric measurement_variance and acceleration_variance"
+        );
+        return;
+    }
+
+    if (measurement_variance <= 0.0 || acceleration_variance <= 0.0 ||
+        measurement_variance > 1000.0 || acceleration_variance > 100000.0) {
+        send_ack(sock, client, client_len, false,
+            "kalman variance must be greater than 0 and within safe limits"
+        );
+        return;
+    }
+
+    esp_err_t err = pid_controller_set_kalman_config((float)measurement_variance, (float)acceleration_variance);
+
+    if (err != ESP_OK) {
+        send_ack(sock, client, client_len, false, "failed to update Kalman calibration");
+        return;
+    }
+
+    ESP_LOGI(TAG,
+        "Kalman calibration updated: measurement_variance=%.3f acceleration_variance=%.3f",
+        measurement_variance,
+        acceleration_variance
+    );
+
+    send_ack(sock, client, client_len, true, "kalman calibration updated");
 }
 
 static void handle_telemetry_mode(int sock, const cJSON *root, const struct sockaddr_in *client, socklen_t client_len)
@@ -311,6 +348,9 @@ static void handle_message(int sock, char *buffer, const struct sockaddr_in *cli
 
     } else if (strcmp(type->valuestring, "servo_calibration") == 0) {
         handle_servo_calibration(sock, root, client, client_len);
+
+    } else if (strcmp(type->valuestring, "kalman_config") == 0) {
+        handle_kalman_config(sock, root, client, client_len);
 
     } else if (strcmp(type->valuestring, "control") == 0) {
         handle_control(sock, root, client, client_len);

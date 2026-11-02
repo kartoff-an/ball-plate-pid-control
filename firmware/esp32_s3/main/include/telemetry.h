@@ -37,6 +37,8 @@ typedef struct {
     bool ball_detected;
     int64_t measurement_age_ms;
 
+    float measurement_x_mm;
+    float measurement_y_mm;
     float ball_x_mm;
     float ball_y_mm;
 

@@ -37,7 +37,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define TELEMETRY_DEBUG             1
+#define TELEMETRY_DEBUG             0
 
 #define CONTROL_PERIOD_MS           10
 #define MAX_MEASUREMENT_AGE_MS      150
@@ -63,7 +63,7 @@
 #define SERVO_NEUTRAL_Y_US          1500
 #define SERVO_MIN_US                1000
 #define SERVO_MAX_US                2000
-#define SERVO_MAX_CORRECTION_US     120.0f
+#define SERVO_MAX_CORRECTION_US     80.0f
 #define SERVO_MAX_SLEW_US_PER_SEC   600.0f
 
 #define PID_KP_MAX                  10.0f
@@ -251,6 +251,43 @@ static esp_err_t set_neutral(uint16_t x_us, uint16_t y_us)
 
 static uint32_t s_telemetry_sequence = 0;
 
+esp_err_t pid_controller_set_kalman_config(float measurement_variance, float acceleration_variance)
+{
+    if (!isfinite(measurement_variance) || !isfinite(acceleration_variance) ||
+        measurement_variance <= 0.0f || acceleration_variance <= 0.0f ||
+        measurement_variance > 1000.0f || acceleration_variance > 100000.0f) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&s_pid_config_mux);
+    s_ball_filter.measurement_variance = measurement_variance;
+    s_ball_filter.acceleration_variance = acceleration_variance;
+    s_ball_filter.initialized = false;
+    memset(&s_ball_filter.x, 0, sizeof(s_ball_filter.x));
+    memset(&s_ball_filter.y, 0, sizeof(s_ball_filter.y));
+    portEXIT_CRITICAL(&s_pid_config_mux);
+
+    ESP_LOGI(TAG, "Kalman config updated: measurement_variance=%.3f acceleration_variance=%.3f",
+             (double)measurement_variance,
+             (double)acceleration_variance);
+
+    return ESP_OK;
+}
+
+esp_err_t pid_controller_get_kalman_config(float *measurement_variance, float *acceleration_variance)
+{
+    if (measurement_variance == NULL || acceleration_variance == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&s_pid_config_mux);
+    *measurement_variance = s_ball_filter.measurement_variance;
+    *acceleration_variance = s_ball_filter.acceleration_variance;
+    portEXIT_CRITICAL(&s_pid_config_mux);
+
+    return ESP_OK;
+}
+
 static void control_task(void *arg)
 {
     (void)arg;
@@ -415,8 +452,10 @@ static void control_task(void *arg)
                 .timestamp_us = now_us,
 
                 .ball_detected = measurement.detected == 1,
-                .ball_x_mm = measurement.center_x,
-                .ball_y_mm = measurement.center_y,
+                .measurement_x_mm = measured_x_mm,
+                .measurement_y_mm = measured_y_mm,
+                .ball_x_mm = ball_x_mm,
+                .ball_y_mm = ball_y_mm,
                 .measurement_age_ms = age_ms,
 
                 .target_x_mm = target_x_mm,

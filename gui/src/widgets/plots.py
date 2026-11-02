@@ -18,6 +18,7 @@ TELEMETRY_MODES = {
     "Position": "position",
     "Velocity": "velocity",
     "Servo": "servo",
+    "Kalman": "kalman",
 }
 
 
@@ -132,6 +133,31 @@ class PlotsWidget(QWidget):
         }
         self._stack.addWidget(servo_page)
 
+        # Kalman analysis page
+        kalman_page = QWidget()
+        kalman_layout = QVBoxLayout(kalman_page)
+        estimate_plot = pg.PlotWidget()
+        innovation_plot = pg.PlotWidget()
+        setup_plot(estimate_plot, "Kalman estimate vs measurement", "Time", "Position", "mm")
+        setup_plot(innovation_plot, "Innovation", "Time", "Residual", "mm")
+        innovation_plot.setXLink(estimate_plot)
+        innovation_plot.addLine(y=0, pen=pg.mkPen((150, 150, 150), style=Qt.PenStyle.DotLine))
+        kalman_layout.addWidget(estimate_plot)
+        kalman_layout.addWidget(innovation_plot)
+        self._pages["kalman"] = {
+            "primary": estimate_plot,
+            "secondary": innovation_plot,
+            "curves": {
+                "measurement_x": estimate_plot.plot(pen=solid(X_COLOR), name="X measured", connect="finite"),
+                "filtered_x": estimate_plot.plot(pen=dashed(X_COLOR), name="X filtered", connect="finite"),
+                "measurement_y": estimate_plot.plot(pen=solid(Y_COLOR), name="Y measured", connect="finite"),
+                "filtered_y": estimate_plot.plot(pen=dashed(Y_COLOR), name="Y filtered", connect="finite"),
+                "innovation_x": innovation_plot.plot(pen=solid(X_COLOR), name="X innovation", connect="finite"),
+                "innovation_y": innovation_plot.plot(pen=solid(Y_COLOR), name="Y innovation", connect="finite"),
+            },
+        }
+        self._stack.addWidget(kalman_page)
+
     def _on_mode_changed(self, index):
         mode = self._mode_combo.itemData(index)
         if mode is None:
@@ -154,8 +180,10 @@ class PlotsWidget(QWidget):
         if sample is not None:
             entry = {
                 "time": float(time),
-                "measured_x": getattr(sample, "ball_x_mm", None),
-                "measured_y": getattr(sample, "ball_y_mm", None),
+                "measured_x": getattr(sample, "measurement_x_mm", getattr(sample, "ball_x_mm", None)),
+                "measured_y": getattr(sample, "measurement_y_mm", getattr(sample, "ball_y_mm", None)),
+                "filtered_x": getattr(sample, "ball_x_mm", None),
+                "filtered_y": getattr(sample, "ball_y_mm", None),
                 "target_x": getattr(sample, "target_x_mm", None),
                 "target_y": getattr(sample, "target_y_mm", None),
                 "velocity_x": getattr(sample, "velocity_x_mm_s", None),
@@ -166,6 +194,8 @@ class PlotsWidget(QWidget):
                 "servo_y": getattr(sample, "servo_y_us", None),
                 "servo_neutral_x": getattr(sample, "servo_neutral_x_us", None),
                 "servo_neutral_y": getattr(sample, "servo_neutral_y_us", None),
+                "innovation_x": getattr(sample, "ball_x_mm", None) - getattr(sample, "measurement_x_mm", getattr(sample, "ball_x_mm", None)),
+                "innovation_y": getattr(sample, "ball_y_mm", None) - getattr(sample, "measurement_y_mm", getattr(sample, "ball_y_mm", None)),
             }
         else:
             mx, my = measured if measured is not None else (np.nan, np.nan)
@@ -174,6 +204,8 @@ class PlotsWidget(QWidget):
                 "time": float(time),
                 "measured_x": mx,
                 "measured_y": my,
+                "filtered_x": mx,
+                "filtered_y": my,
                 "target_x": tx,
                 "target_y": ty,
                 "velocity_x": np.nan,
@@ -184,6 +216,8 @@ class PlotsWidget(QWidget):
                 "servo_y": np.nan,
                 "servo_neutral_x": np.nan,
                 "servo_neutral_y": np.nan,
+                "innovation_x": np.nan,
+                "innovation_y": np.nan,
             }
 
         self._samples.append(entry)
@@ -243,6 +277,13 @@ class PlotsWidget(QWidget):
                 page["curves"]["servo_neutral_y"].setData(time_values, series("servo_neutral_y"))
                 page["curves"]["error_x"].setData(time_values, series("error_x"))
                 page["curves"]["error_y"].setData(time_values, series("error_y"))
+            elif mode == "kalman":
+                page["curves"]["measurement_x"].setData(time_values, series("measured_x"))
+                page["curves"]["measurement_y"].setData(time_values, series("measured_y"))
+                page["curves"]["filtered_x"].setData(time_values, series("filtered_x"))
+                page["curves"]["filtered_y"].setData(time_values, series("filtered_y"))
+                page["curves"]["innovation_x"].setData(time_values, series("innovation_x"))
+                page["curves"]["innovation_y"].setData(time_values, series("innovation_y"))
 
         if self._mode in self._pages:
             for name, curve in self._pages[self._mode]["curves"].items():

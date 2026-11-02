@@ -72,6 +72,8 @@ static esp_err_t telemetry_send(const telemetry_data_t *data)
                     "\"sequence\":%" PRIu32 ","
                     "\"timestamp_us\":%" PRId64 ","
                     "\"ball_detected\":%s,"
+                    "\"measurement_x_mm\":%.3f,"
+                    "\"measurement_y_mm\":%.3f,"
                     "\"ball_x_mm\":%.3f,"
                     "\"ball_y_mm\":%.3f,"
                     "\"target_x_mm\":%.3f,"
@@ -84,6 +86,8 @@ static esp_err_t telemetry_send(const telemetry_data_t *data)
                 data->sequence,
                 data->timestamp_us,
                 data->ball_detected ? "true" : "false",
+                (double)data->measurement_x_mm,
+                (double)data->measurement_y_mm,
                 (double)data->ball_x_mm,
                 (double)data->ball_y_mm,
                 (double)data->target_x_mm,
@@ -103,6 +107,8 @@ static esp_err_t telemetry_send(const telemetry_data_t *data)
                     "\"sequence\":%" PRIu32 ","
                     "\"timestamp_us\":%" PRId64 ","
                     "\"ball_detected\":%s,"
+                    "\"measurement_x_mm\":%.3f,"
+                    "\"measurement_y_mm\":%.3f,"
                     "\"ball_x_mm\":%.3f,"
                     "\"ball_y_mm\":%.3f,"
                     "\"velocity_x_mm_s\":%.3f,"
@@ -115,6 +121,8 @@ static esp_err_t telemetry_send(const telemetry_data_t *data)
                 data->sequence,
                 data->timestamp_us,
                 data->ball_detected ? "true" : "false",
+                (double)data->measurement_x_mm,
+                (double)data->measurement_y_mm,
                 (double)data->ball_x_mm,
                 (double)data->ball_y_mm,
                 (double)data->velocity_x_mm_s,

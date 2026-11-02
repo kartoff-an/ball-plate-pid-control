@@ -22,11 +22,13 @@ from telemetry_receiver import (  # noqa: E402
     parse_telemetry,
 )
 
-# Exactly the format telemetry.c produces.
+# Exactly the format telemetry.c produces for the modern position payload.
 FIRMWARE_PACKET = (
-    b'{"type":"telemetry","sequence":42,"ball_detected":true,"ball_x":80,"ball_y":60,'
-    b'"measurement_age_ms":12,"error_x_mm":-3.50,"error_y_mm":7.00,"output_x_us":-1.75,'
-    b'"output_y_us":3.50,"servo_x_us":1498,"servo_y_us":1503,"controller_enabled":false}'
+    b'{"type":"telemetry","mode":"position","sequence":42,"timestamp_us":123456,'
+    b'"ball_detected":true,"measurement_x_mm":80.0,"measurement_y_mm":60.0,'
+    b'"ball_x_mm":80.0,"ball_y_mm":60.0,"target_x_mm":0.0,"target_y_mm":0.0,'
+    b'"error_x_mm":-3.50,"error_y_mm":7.00,"measurement_age_ms":12,'
+    b'"controller_enabled":false}'
 )
 
 
@@ -48,19 +50,19 @@ class ParseTelemetryTests(unittest.TestCase):
         sample = parse_telemetry(FIRMWARE_PACKET, received_at=12.5)
 
         self.assertEqual(sample.sequence, 42)
+        self.assertEqual(sample.mode, "position")
         self.assertIs(sample.ball_detected, True)
-        self.assertEqual((sample.ball_x, sample.ball_y), (80, 60))
+        self.assertEqual((sample.measurement_x_mm, sample.measurement_y_mm), (80.0, 60.0))
+        self.assertEqual((sample.ball_x_mm, sample.ball_y_mm), (80.0, 60.0))
         self.assertEqual(sample.measurement_age_ms, 12)
         self.assertEqual((sample.error_x_mm, sample.error_y_mm), (-3.5, 7.0))
-        self.assertEqual((sample.output_x_us, sample.output_y_us), (-1.75, 3.5))
-        self.assertEqual((sample.servo_x_us, sample.servo_y_us), (1498, 1503))
         self.assertIs(sample.controller_enabled, False)
         self.assertEqual(sample.received_at, 12.5)
 
     def test_integer_valued_numbers_become_floats(self):
-        sample = parse_telemetry(packet(error_x_mm=0, output_y_us=5), received_at=0)
+        sample = parse_telemetry(packet(error_x_mm=0, ball_y_mm=5), received_at=0)
         self.assertIsInstance(sample.error_x_mm, float)
-        self.assertIsInstance(sample.output_y_us, float)
+        self.assertIsInstance(sample.ball_y_mm, float)
 
     def test_ignores_unknown_extra_fields(self):
         sample = parse_telemetry(packet(future_field="anything"), received_at=0)
@@ -91,26 +93,25 @@ class ParseTelemetryTests(unittest.TestCase):
         self.assertRejected(b"HELO", "malformed JSON")
 
     def test_rejects_missing_fields(self):
-        self.assertRejected(packet(servo_y_us=_REMOVE), "missing fields: servo_y_us")
-        # The firmware sends *_mm, not bare error_x/error_y.
+        self.assertRejected(packet(ball_x_mm=_REMOVE), "missing fields: ball_x_mm")
         self.assertRejected(
             packet(error_x_mm=_REMOVE, error_y_mm=_REMOVE, error_x=1.0, error_y=1.0),
             "missing fields: error_x_mm, error_y_mm",
         )
 
     def test_rejects_numbers_sent_as_strings(self):
-        self.assertRejected(packet(ball_x="80"), "ball_x must be a integer")
+        self.assertRejected(packet(ball_x_mm="80"), "ball_x_mm must be a number")
         self.assertRejected(packet(error_x_mm="1.00"), "error_x_mm must be a number")
 
     def test_rejects_wrong_scalar_types(self):
         self.assertRejected(packet(ball_detected=1), "ball_detected must be a boolean")
         self.assertRejected(packet(controller_enabled="false"), "controller_enabled must be a boolean")
         self.assertRejected(packet(sequence=True), "sequence must be a integer")
-        self.assertRejected(packet(servo_x_us=1500.5), "servo_x_us must be a integer")
-        self.assertRejected(packet(output_x_us=None), "output_x_us must be a number")
+        self.assertRejected(packet(measurement_age_ms=12.5), "measurement_age_ms must be a integer")
+        self.assertRejected(packet(ball_x_mm=None), "ball_x_mm must be a number")
 
     def test_rejects_out_of_range_values(self):
-        self.assertRejected(packet(ball_y=-1), "ball_y must not be negative")
+        self.assertRejected(packet(measurement_age_ms=-1), "measurement_age_ms must not be negative")
         self.assertRejected(packet(sequence=2**32), "sequence exceeds 32 bits")
 
     def test_rejects_non_finite_numbers(self):
@@ -307,7 +308,7 @@ class LiveTelemetryControllerTests(unittest.TestCase):
 
         self.sender.sendto(FIRMWARE_PACKET, ("127.0.0.1", self.controller._receiver.port))
         self.process_until(lambda: status.text() == "Live telemetry")
-        self.assertEqual(self.widget._ball_labels[0].text(), "80")
+        self.assertEqual(self.widget._ball_labels[0].text(), "80.00")
         self.assertEqual(self.widget._enabled_label.text(), "Disabled")
 
         self.process_until(lambda: status.text().startswith("Telemetry stale"))

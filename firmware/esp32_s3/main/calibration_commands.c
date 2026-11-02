@@ -86,6 +86,31 @@ static void send_gains(int sock, const struct sockaddr_in *client, socklen_t cli
     send_response(sock, response, client, client_len);
 }
 
+static void send_kalman_config(int sock, const struct sockaddr_in *client, socklen_t client_len)
+{
+    float measurement_variance;
+    float acceleration_variance;
+
+    esp_err_t err = pid_controller_get_kalman_config(&measurement_variance, &acceleration_variance);
+
+    if (err != ESP_OK) {
+        send_response(sock, "ERR unable to read Kalman config\n", client, client_len);
+        return;
+    }
+
+    char response[128];
+
+    snprintf(
+        response,
+        sizeof(response),
+        "OK KALMAN %.3f %.3f\n",
+        (double)measurement_variance,
+        (double)acceleration_variance
+    );
+
+    send_response(sock, response, client, client_len);
+}
+
 static void handle_command(int sock, char *command, const struct sockaddr_in *client, socklen_t client_len)
 {
     char response[128];
@@ -163,6 +188,11 @@ static void handle_command(int sock, char *command, const struct sockaddr_in *cl
 
     if (strcmp(command, "GET") == 0) {
         send_gains(sock, client, client_len);
+        return;
+    }
+
+    if (strcmp(command, "GET KALMAN") == 0) {
+        send_kalman_config(sock, client, client_len);
         return;
     }
 

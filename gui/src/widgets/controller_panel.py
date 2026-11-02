@@ -90,6 +90,22 @@ class ControllerPanel(QWidget):
         self.apply_gains_button.clicked.connect(self._apply_gains)
         pid_layout.addWidget(self.apply_gains_button, 4, 0, 1, 3)
 
+        # Kalman filter calibration
+        kalman_box = QGroupBox("Kalman Filter")
+        kalman_layout = QGridLayout(kalman_box)
+
+        self.kalman_measurement_variance = self._number_input(0.01, 1000.0, 4.0, 0.1, 3)
+        self.kalman_acceleration_variance = self._number_input(0.01, 100000.0, 500.0, 5.0, 3)
+
+        kalman_layout.addWidget(QLabel("Measurement variance"), 0, 0)
+        kalman_layout.addWidget(self.kalman_measurement_variance, 0, 1)
+        kalman_layout.addWidget(QLabel("Acceleration variance"), 1, 0)
+        kalman_layout.addWidget(self.kalman_acceleration_variance, 1, 1)
+
+        self.apply_kalman_button = QPushButton("Apply Kalman")
+        self.apply_kalman_button.clicked.connect(self._apply_kalman)
+        kalman_layout.addWidget(self.apply_kalman_button, 2, 0, 1, 2)
+
         # Controller actions
         actions_box = QGroupBox("Controller")
         actions_layout = QHBoxLayout(actions_box)
@@ -114,6 +130,7 @@ class ControllerPanel(QWidget):
 
         layout.addLayout(calibration_layout)
         layout.addWidget(pid_box)
+        layout.addWidget(kalman_box)
         layout.addWidget(actions_box)
         layout.addWidget(self.status_label)
 
@@ -178,6 +195,15 @@ class ControllerPanel(QWidget):
                 kp_x, ki_x, kd_x,
                 kp_y, ki_y, kd_y,
             ),
+        )
+
+    def _apply_kalman(self):
+        measurement_variance = self.kalman_measurement_variance.value()
+        acceleration_variance = self.kalman_acceleration_variance.value()
+
+        self._run_command(
+            f"Kalman variance Q={measurement_variance:.3f}, R={acceleration_variance:.3f}",
+            lambda: self.sender.set_kalman_filter(measurement_variance, acceleration_variance),
         )
 
     def _start(self):

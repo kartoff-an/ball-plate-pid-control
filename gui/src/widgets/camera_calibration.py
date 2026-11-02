@@ -85,8 +85,8 @@ class CameraPreviewLabel(QLabel):
     def set_ball_telemetry(self, sample):
         with app_state._lock:
             app_state.ball.detected = sample.ball_detected
-            app_state.ball.x = sample.ball_x if sample.ball_detected else None
-            app_state.ball.y = sample.ball_y if sample.ball_detected else None
+            app_state.ball.x = sample.ball_x_mm if sample.ball_detected else None
+            app_state.ball.y = sample.ball_y_mm if sample.ball_detected else None
             app_state.ball.received_at = sample.received_at
 
         self.update()
@@ -183,23 +183,25 @@ class CameraPreviewLabel(QLabel):
             detected and fresh
             and ball_x is not None
             and ball_y is not None
-            and 0 <= ball_x < frame_width
-            and 0 <= ball_y < frame_height
         ):
-            display_x = map_x(ball_x)
-            display_y = map_y(ball_y)
+            ball_x_px = config.mm_to_pixels(ball_x, config.PLATE_CENTER_X_PX)
+            ball_y_px = config.mm_to_pixels(ball_y, config.PLATE_CENTER_Y_PX)
 
-            radius = BALL_MARKER_RADIUS_PX * scale
+            if 0 <= ball_x_px < frame_width and 0 <= ball_y_px < frame_height:
+                display_x = map_x(ball_x_px)
+                display_y = map_y(ball_y_px)
 
-            painter.setPen(QPen(QColor("#EF4444"), 2))
-            painter.setBrush(QColor("#EF4444"))
+                radius = BALL_MARKER_RADIUS_PX * scale
 
-            painter.drawEllipse(
-                int(display_x - radius),
-                int(display_y - radius),
-                max(1, int(2 * radius)),
-                max(1, int(2 * radius)),
-            )
+                painter.setPen(QPen(QColor("#EF4444"), 2))
+                painter.setBrush(QColor("#EF4444"))
+
+                painter.drawEllipse(
+                    int(display_x - radius),
+                    int(display_y - radius),
+                    max(1, int(2 * radius)),
+                    max(1, int(2 * radius)),
+                )
 
         painter.end()
 
@@ -619,7 +621,7 @@ class CameraCalibrationPage(QWidget):
         self.image_label.set_ball_telemetry(sample)
 
         if sample.ball_detected:
-            self.telemetry_status.setText(f"Ball: ({sample.ball_x}, {sample.ball_y})"
+            self.telemetry_status.setText(f"Ball: ({sample.ball_x_mm}, {sample.ball_y_mm})"
             )
         else:
             self.telemetry_status.setText("Ball not detected")

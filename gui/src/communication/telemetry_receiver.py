@@ -49,6 +49,8 @@ class TelemetrySample:
     received_at: float
 
     ball_detected: bool = None
+    measurement_x_mm: float = None
+    measurement_y_mm: float = None
     ball_x_mm: float = None
     ball_y_mm: float = None
     target_x_mm: float = None
@@ -91,6 +93,8 @@ _COMMON_FIELDS = {
 _MODE_FIELDS = {
     "position": {
         "ball_detected": _BOOL,
+        "measurement_x_mm": _NUMBER,
+        "measurement_y_mm": _NUMBER,
         "ball_x_mm": _NUMBER,
         "ball_y_mm": _NUMBER,
         "target_x_mm": _NUMBER,
@@ -101,6 +105,8 @@ _MODE_FIELDS = {
     },
     "velocity": {
         "ball_detected": _BOOL,
+        "measurement_x_mm": _NUMBER,
+        "measurement_y_mm": _NUMBER,
         "ball_x_mm": _NUMBER,
         "ball_y_mm": _NUMBER,
         "target_x_mm": _NUMBER,

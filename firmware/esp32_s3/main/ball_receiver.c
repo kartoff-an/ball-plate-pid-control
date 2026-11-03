@@ -1,3 +1,16 @@
+/**
+ * @file ball_receiver.c
+ * @brief ESP-NOW reception and storage of ball position measurements.
+ *
+ * Receives measurement packets from the ESP32-CAM, validates their
+ * contents, and stores the latest valid packet together with its
+ * reception timestamp.
+ *
+ * Shared measurement data is protected by a FreeRTOS critical section
+ * because the receive callback and application tasks may access it
+ * from different execution contexts.
+ */
+
 #include <string.h>
 
 #include "ball_receiver.h"
@@ -13,7 +26,14 @@
 
 static const char *TAG = "BALL_RECEIVER";
 
+/**
+ * @brief Spinlock protecting shared measurement data.
+ *
+ * Protects access to s_latest, s_last_received_us, and
+ * s_has_measurement.
+ */
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+
 static ball_measurement_t s_latest;
 static int64_t s_last_received_us = 0;
 static bool s_has_measurement = false;

@@ -1,3 +1,27 @@
+/**
+ * @file wifi_station.c
+ * @brief Wi-Fi station initialization and connection management.
+ *
+ * Implements the ESP32 Wi-Fi station connection process.
+ *
+ * Initialization sequence:
+ * 1. Initialize NVS flash storage.
+ * 2. Initialize the network interface and default event loop.
+ * 3. Create the default Wi-Fi station network interface.
+ * 4. Create the connection event group.
+ * 5. Initialize the Wi-Fi driver.
+ * 6. Register Wi-Fi and IP event handlers.
+ * 7. Configure station credentials and authentication requirements.
+ * 8. Start Wi-Fi and disable power saving.
+ * 9. Wait until the station obtains an IP address.
+ *
+ * The event handler automatically attempts reconnection whenever
+ * the station becomes disconnected.
+ *
+ * @note This module uses blocking connection initialization.
+ * @note The station credentials are currently defined at compile time.
+ */
+
 #include "wifi_station.h"
 
 #include <stdio.h>
@@ -12,10 +36,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
-#define WIFI_SSID       "BallPlateSystem"
-#define WIFI_PASSWORD   "BallPlateSystem1234"
+#define WIFI_SSID           "BallPlateSystem"
+#define WIFI_PASSWORD       "BallPlateSystem1234"
 
-#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_CONNECTED_BIT  BIT0
 
 static const char *TAG = "WIFI_STA";
 
@@ -39,11 +63,22 @@ static esp_err_t init_nvs(void)
     return err;
 }
 
-static void wifi_event_handler(
-    void *context,
-    esp_event_base_t event_base,
-    int32_t event_id,
-    void *event_data)
+/**
+ * @brief Handle Wi-Fi and IP events.
+ *
+ * Processes station lifecycle events:
+ *
+ * - WIFI_EVENT_STA_START:
+ *   Initiates the connection to the configured access point.
+ *
+ * - WIFI_EVENT_STA_DISCONNECTED:
+ *   Clears the connection event bit and attempts reconnection.
+ *
+ * - IP_EVENT_STA_GOT_IP:
+ *   Logs the assigned station IP address and gateway, then sets
+ *   WIFI_CONNECTED_BIT to signal successful network connectivity.
+ */
+static void wifi_event_handler(void *context, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     (void)context;
 
@@ -76,22 +111,22 @@ esp_err_t wifi_station_connect(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t err = init_nvs();
+    esp_err_t error = init_nvs();
 
-    if (err != ESP_OK) {
-        return err;
+    if (error != ESP_OK) {
+        return error;
     }
 
-    err = esp_netif_init();
+    error = esp_netif_init();
 
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        return err;
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
+        return error;
     }
 
-    err = esp_event_loop_create_default();
+    error = esp_event_loop_create_default();
 
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        return err;
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
+        return error;
     }
 
     if (esp_netif_create_default_wifi_sta() == NULL) {
@@ -107,32 +142,32 @@ esp_err_t wifi_station_connect(void)
 
     wifi_init_config_t wifi_config = WIFI_INIT_CONFIG_DEFAULT();
 
-    err = esp_wifi_init(&wifi_config);
+    error = esp_wifi_init(&wifi_config);
 
-    if (err != ESP_OK) {
-        return err;
+    if (error != ESP_OK) {
+        return error;
     }
 
-    err = esp_event_handler_register(
+    error = esp_event_handler_register(
         WIFI_EVENT,
         ESP_EVENT_ANY_ID,
         wifi_event_handler,
         NULL
     );
 
-    if (err != ESP_OK) {
-        return err;
+    if (error != ESP_OK) {
+        return error;
     }
 
-    err = esp_event_handler_register(
+    error = esp_event_handler_register(
         IP_EVENT,
         IP_EVENT_STA_GOT_IP,
         wifi_event_handler,
         NULL
     );
 
-    if (err != ESP_OK) {
-        return err;
+    if (error != ESP_OK) {
+        return error;
     }
 
     wifi_config_t station_config = {0};
@@ -152,26 +187,30 @@ esp_err_t wifi_station_connect(void)
 
     station_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
-    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    error = esp_wifi_set_mode(WIFI_MODE_STA);
 
-    if (err != ESP_OK) {
-        return err;
+    if (error != ESP_OK) {
+        return error;
     }
 
-    err = esp_wifi_set_config(WIFI_IF_STA, &station_config);
+    error = esp_wifi_set_config(WIFI_IF_STA, &station_config);
 
-    if (err != ESP_OK) {
-        return err;
+    if (error != ESP_OK) {
+        return error;
     }
 
-    err = esp_wifi_start();
+    error = esp_wifi_start();
 
-    if (err != ESP_OK) {
-        return err;
+    if (error != ESP_OK) {
+        return error;
     }
 
-    err = esp_wifi_set_ps(WIFI_PS_NONE);
-    if (err != ESP_OK) {
+     /**
+     * Disable Wi-Fi power saving to reduce latency and improve
+     * consistency for continuous camera streaming.
+     */
+    error = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (error != ESP_OK) {
         ESP_LOGW(TAG, "Could not disable Wi-Fi power saving");
     }
 

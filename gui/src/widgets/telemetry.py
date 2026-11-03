@@ -1,3 +1,4 @@
+
 """Telemetry panel for the values the ESP32-S3 firmware reports.
 
 The panel only displays what it is given. Nothing is shown until the first
@@ -5,13 +6,14 @@ sample arrives ("--" rather than 0), and once the link goes stale the last
 values stay visible but are greyed out so they are not mistaken for current
 readings.
 
-Units follow the firmware: error is plate millimeters, and controller output
-and servo commands are microseconds.
+Units follow the firmware: position and error are plate millimeters,
+velocity is millimeters per second, and controller output and servo commands
+are microseconds.
 """
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal, QSignalBlocker
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QGridLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QGridLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from communication.telemetry_receiver import LinkState
 
@@ -28,9 +30,17 @@ _STATUS_STYLES = {
 }
 _STALE_VALUE_STYLE = "color: gray; font-style: italic;"
 
+TELEMETRY_MODES = {
+    "Position": "position",
+    "Velocity": "velocity",
+    "Servo": "servo"
+}
+
 
 class TelemetryWidget(QWidget):
     """Error is target minus measured, as computed by the firmware."""
+
+    telemetry_mode_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -53,38 +63,82 @@ class TelemetryWidget(QWidget):
         self._status_label.setWordWrap(True)
         self._status_label.setContentsMargins(6, 4, 6, 4)
 
-        ball_box = QGroupBox("Ball (camera px)")
+        mode_box = QGroupBox("Telemetry response")
+        mode_layout = QGridLayout(mode_box)
+        mode_layout.addWidget(QLabel("Mode"), 0, 0)
+
+        self._mode_combo = QComboBox()
+        for label, mode in TELEMETRY_MODES.items():
+            self._mode_combo.addItem(label, mode)
+
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        mode_layout.addWidget(self._mode_combo, 0, 1)
+
+        ball_box = QGroupBox("Ball (mm)")
         ball_grid = QGridLayout(ball_box)
+
         self._detected_label = value_label()
         self._ball_labels = (value_label(), value_label())
+        self._velocity_labels = (value_label(), value_label())
+        self._target_labels = (value_label(), value_label())
         self._age_label = value_label()
-        ball_grid.addWidget(QLabel("Detected"), 0, 0)
-        ball_grid.addWidget(self._detected_label, 0, 1)
-        ball_grid.addWidget(QLabel("Position X / Y (px)"), 1, 0)
-        ball_grid.addWidget(self._ball_labels[0], 1, 1)
-        ball_grid.addWidget(self._ball_labels[1], 1, 2)
-        ball_grid.addWidget(QLabel("Measurement age (ms)"), 2, 0)
-        ball_grid.addWidget(self._age_label, 2, 1)
+
+        ball_rows = (
+            ("detected", "Detected", (self._detected_label,)),
+            ("position", "Position X / Y (mm)", self._ball_labels),
+            ("velocity", "Velocity X / Y (mm/s)", self._velocity_labels),
+            ("target", "Target X / Y (mm)", self._target_labels),
+            ("age", "Measurement age (ms)", (self._age_label,)),
+        )
+
+        self._ball_rows = {}
+
+        for row, (key, title, labels) in enumerate(ball_rows):
+            title_label = QLabel(title)
+            ball_grid.addWidget(title_label, row, 0)
+
+            for column, label in enumerate(labels, start=1):
+                ball_grid.addWidget(label, row, column)
+
+            self._ball_rows[key] = (title_label, *labels)
 
         controller_box = QGroupBox("Controller")
         controller_grid = QGridLayout(controller_box)
+
         for column, axis in enumerate(("X", "Y"), start=1):
             header = QLabel(axis)
             header.setAlignment(Qt.AlignmentFlag.AlignRight)
             controller_grid.addWidget(header, 0, column)
 
         self._controller_labels = {}
-        rows = (("error", "Error (mm)"), ("output", "PID output (µs)"), ("servo", "Servo pulse (µs)"))
-        for row, (key, title) in enumerate(rows, start=1):
-            controller_grid.addWidget(QLabel(title), row, 0)
+        controller_rows = (
+            ("error", "Error (mm)"),
+            ("pid_output", "PID output (µs)"),
+            ("output", "Controller output (µs)"),
+            ("neutral", "Servo neutral (µs)"),
+            ("servo", "Servo pulse (µs)"),
+            ("saturated", "Servo saturated")
+        )
+
+        self._controller_rows = {}
+
+        for row, (key, title) in enumerate(controller_rows, start=1):
+            title_label = QLabel(title)
             labels = (value_label(), value_label())
+
+            controller_grid.addWidget(title_label, row, 0)
             controller_grid.addWidget(labels[0], row, 1)
             controller_grid.addWidget(labels[1], row, 2)
-            self._controller_labels[key] = labels
 
-        controller_grid.addWidget(QLabel("Firmware servo output"), len(rows) + 1, 0)
+            self._controller_labels[key] = labels
+            self._controller_rows[key] = (title_label, *labels)
+
+        enabled_row = len(controller_rows) + 1
+        self._enabled_title = QLabel("Firmware controller")
         self._enabled_label = value_label()
-        controller_grid.addWidget(self._enabled_label, len(rows) + 1, 1, 1, 2)
+
+        controller_grid.addWidget(self._enabled_title, enabled_row, 0)
+        controller_grid.addWidget(self._enabled_label, enabled_row, 1, 1, 2)
 
         self._sequence_label = value_label()
         self._received_label = value_label()
@@ -97,22 +151,154 @@ class TelemetryWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._status_label)
+        layout.addWidget(mode_box)
         layout.addWidget(ball_box)
         layout.addWidget(controller_box)
         layout.addStretch(1)
 
+        self._set_mode_visibility("position")
         self.set_link_state(LinkState.NO_DATA)
 
+    def _on_mode_changed(self, index):
+        mode = self._mode_combo.itemData(index)
+        if mode is None:
+            return
+
+        self._set_mode_visibility(mode)
+        self.telemetry_mode_changed.emit(mode)
+
     def set_sample(self, sample):
-        """Show a TelemetrySample (or anything with the same attributes)."""
-        self._detected_label.setText("Yes" if sample.ball_detected else "No")
-        _set_pair(self._ball_labels, (sample.ball_x, sample.ball_y), "{:d}")
-        self._age_label.setText(f"{sample.measurement_age_ms:d}")
-        _set_pair(self._controller_labels["error"], (sample.error_x_mm, sample.error_y_mm), "{:.2f}")
-        _set_pair(self._controller_labels["output"], (sample.output_x_us, sample.output_y_us), "{:.2f}")
-        _set_pair(self._controller_labels["servo"], (sample.servo_x_us, sample.servo_y_us), "{:d}")
-        self._enabled_label.setText("Enabled" if sample.controller_enabled else "Disabled")
-        self._sequence_label.setText(str(sample.sequence))
+        """Show a telemetry sample using the fields for its response mode."""
+
+        mode = getattr(sample, "mode", self._mode_combo.currentData())
+
+        if mode not in TELEMETRY_MODES.values():
+            return
+
+        self._set_selected_mode(mode)
+
+        detected = getattr(sample, "ball_detected", None)
+        self._detected_label.setText(
+            UNAVAILABLE if detected is None
+            else "Yes" if detected else "No"
+        )
+
+        self._set_pair(
+            self._ball_labels,
+            (getattr(sample, "ball_x_mm", None),
+             getattr(sample, "ball_y_mm", None)),
+            "{:.2f}",
+        )
+
+        self._set_pair(
+            self._velocity_labels,
+            (getattr(sample, "velocity_x_mm_s", None),
+             getattr(sample, "velocity_y_mm_s", None)),
+            "{:.2f}",
+        )
+
+        self._set_pair(
+            self._target_labels,
+            (getattr(sample, "target_x_mm", None),
+             getattr(sample, "target_y_mm", None)),
+            "{:.2f}",
+        )
+
+        age = getattr(sample, "measurement_age_ms", None)
+        self._age_label.setText(
+            UNAVAILABLE if age is None else str(age)
+        )
+
+        self._set_pair(
+            self._controller_labels["error"],
+            (getattr(sample, "error_x_mm", None),
+             getattr(sample, "error_y_mm", None)),
+            "{:.2f}",
+        )
+
+        self._set_pair(
+            self._controller_labels["pid_output"],
+            (getattr(sample, "pid_output_x_us", None),
+             getattr(sample, "pid_output_y_us", None)),
+            "{:.2f}",
+        )
+
+        self._set_pair(
+            self._controller_labels["output"],
+            (getattr(sample, "output_x_us", None),
+             getattr(sample, "output_y_us", None)),
+            "{:.2f}",
+        )
+
+        self._set_pair(
+            self._controller_labels["neutral"],
+            (getattr(sample, "servo_neutral_x_us", None),
+             getattr(sample, "servo_neutral_y_us", None)),
+            "{:d}",
+        )
+
+        self._set_pair(
+            self._controller_labels["servo"],
+            (getattr(sample, "servo_x_us", None),
+             getattr(sample, "servo_y_us", None)),
+            "{:d}",
+        )
+
+        self._set_pair(
+            self._controller_labels["saturated"],
+            (getattr(sample, "servo_saturated_x", None),
+             getattr(sample, "servo_saturated_y", None)),
+            "{}",
+        )
+
+        enabled = getattr(sample, "controller_enabled", None)
+        self._enabled_label.setText(
+            UNAVAILABLE if enabled is None
+            else "Enabled" if enabled else "Disabled"
+        )
+
+        self._sequence_label.setText(
+            str(getattr(sample, "sequence", UNAVAILABLE))
+        )
+
+    def _set_selected_mode(self, mode):
+        index = self._mode_combo.findData(mode)
+
+        if index < 0:
+            return
+
+        blocker = QSignalBlocker(self._mode_combo)
+        self._mode_combo.setCurrentIndex(index)
+        del blocker
+
+        self._set_mode_visibility(mode)
+
+    def _set_mode_visibility(self, mode):
+        visibility = {
+            "position": {
+                "detected", "position", "target", "age", "error"
+            },
+            "velocity": {
+                "detected", "position", "velocity", "target", "age"
+            },
+            "servo": {
+                "error", "pid_output", "output", "neutral", "servo", "saturated"
+            },
+        }
+
+        visible = visibility.get(mode, set())
+
+        for key, widgets in self._ball_rows.items():
+            for widget in widgets:
+                widget.setVisible(key in visible)
+
+        for key, widgets in self._controller_rows.items():
+            for widget in widgets:
+                widget.setVisible(key in visible)
+
+        # Controller enabled is common to all telemetry modes.
+        self._enabled_title.setVisible(True)
+        self._enabled_label.setVisible(True)
 
     def set_stats(self, stats):
         """Show ReceiverStats counters."""
@@ -157,7 +343,12 @@ class TelemetryWidget(QWidget):
         for label in self._value_labels:
             label.setStyleSheet(style)
 
-
-def _set_pair(labels, pair, fmt):
-    for label, value in zip(labels, pair):
-        label.setText(UNAVAILABLE if value is None else fmt.format(value))
+    @staticmethod
+    def _set_pair(labels, pair, fmt):
+        for label, value in zip(labels, pair):
+            if value is None:
+                label.setText(UNAVAILABLE)
+            elif fmt == "{}":
+                label.setText("Yes" if value else "No")
+            else:
+                label.setText(fmt.format(value))

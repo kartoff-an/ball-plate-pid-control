@@ -141,9 +141,9 @@ The ESP32-S3 broadcasts telemetry over its own Wi-Fi network. The GUI only liste
 | ESP32-S3 address | `192.168.4.1` |
 | Telemetry | UDP broadcast to `192.168.4.255`, port `9003` (`PC_TELEMETRY_PORT` in `src/config.py`), one JSON object per datagram |
 
-The firmware sends at most 20 packets per second, and **only while it has a fresh ball detection**. When the ball is removed or the camera stops, packets stop instead of reporting "no ball", so the GUI marks telemetry stale after 1 s without a packet (change this with `--stale-timeout`).
+The firmware sends at most 20 packets per second, and **only while it has a fresh ball detection**. Telemetry continues when the controller is disabled; in that state the reported PID outputs are zero and the servo-output status is disabled. When the ball is removed or the camera stops, packets stop instead of reporting "no ball", so the GUI marks telemetry stale after 1 s without a packet (change this with `--stale-timeout`).
 
-Error is in plate millimeters. PID output and servo pulses are in microseconds. "Firmware servo output" shows the firmware's `controller_enabled` flag, which is currently always *Disabled* because `CONTROL_OUTPUT_ENABLED` is 0 in `pid_controller.c`. Pitch, roll, PID gains, the target position, and elapsed time are not in the telemetry packet, so they are not shown.
+Error is in plate millimeters. PID output and servo pulses are in microseconds. "Firmware servo output" shows whether the controller is enabled and firmware servo output is permitted by `CONTROL_OUTPUT_ENABLED`. Pitch, roll, PID gains, the target position, and elapsed time are not in the telemetry packet, so they are not shown.
 
 ### Trying it without hardware
 

@@ -42,19 +42,38 @@ class TelemetrySample:
     computer, since the payload carries no timestamp.
     """
 
+    mode: str
     sequence: int
-    ball_detected: bool
-    ball_x: int
-    ball_y: int
-    measurement_age_ms: int
-    error_x_mm: float
-    error_y_mm: float
-    output_x_us: float
-    output_y_us: float
-    servo_x_us: int
-    servo_y_us: int
+    timestamp_us: int
     controller_enabled: bool
     received_at: float
+
+    ball_detected: bool = None
+    measurement_x_mm: float = None
+    measurement_y_mm: float = None
+    ball_x_mm: float = None
+    ball_y_mm: float = None
+    target_x_mm: float = None
+    target_y_mm: float = None
+    error_x_mm: float = None
+    error_y_mm: float = None
+    measurement_age_ms: int = None
+
+    velocity_x_mm_s: float = None
+    velocity_y_mm_s: float = None
+
+    pid_output_x_us: float = None
+    pid_output_y_us: float = None
+    output_x_us: float = None
+    output_y_us: float = None
+
+    servo_neutral_x_us: int = None
+    servo_neutral_y_us: int = None
+    servo_x_us: int = None
+    servo_y_us: int = None
+
+    servo_saturated_x: bool = None
+    servo_saturated_y: bool = None
 
 
 class TelemetryParseError(ValueError):
@@ -65,23 +84,62 @@ _BOOL = "boolean"
 _INT = "integer"
 _NUMBER = "number"
 
-# Field name -> expected JSON type, matching telemetry.c.
-_FIELDS = {
+_COMMON_FIELDS = {
     "sequence": _INT,
-    "ball_detected": _BOOL,
-    "ball_x": _INT,
-    "ball_y": _INT,
-    "measurement_age_ms": _INT,
-    "error_x_mm": _NUMBER,
-    "error_y_mm": _NUMBER,
-    "output_x_us": _NUMBER,
-    "output_y_us": _NUMBER,
-    "servo_x_us": _INT,
-    "servo_y_us": _INT,
+    "timestamp_us": _INT,
     "controller_enabled": _BOOL,
 }
 
-_NON_NEGATIVE = {"sequence", "ball_x", "ball_y", "measurement_age_ms", "servo_x_us", "servo_y_us"}
+_MODE_FIELDS = {
+    "position": {
+        "ball_detected": _BOOL,
+        "measurement_x_mm": _NUMBER,
+        "measurement_y_mm": _NUMBER,
+        "ball_x_mm": _NUMBER,
+        "ball_y_mm": _NUMBER,
+        "target_x_mm": _NUMBER,
+        "target_y_mm": _NUMBER,
+        "error_x_mm": _NUMBER,
+        "error_y_mm": _NUMBER,
+        "measurement_age_ms": _INT,
+    },
+    "velocity": {
+        "ball_detected": _BOOL,
+        "measurement_x_mm": _NUMBER,
+        "measurement_y_mm": _NUMBER,
+        "ball_x_mm": _NUMBER,
+        "ball_y_mm": _NUMBER,
+        "target_x_mm": _NUMBER,
+        "target_y_mm": _NUMBER,
+        "velocity_x_mm_s": _NUMBER,
+        "velocity_y_mm_s": _NUMBER,
+        "measurement_age_ms": _INT,
+    },
+    "servo": {
+        "error_x_mm": _NUMBER,
+        "error_y_mm": _NUMBER,
+        "pid_output_x_us": _NUMBER,
+        "pid_output_y_us": _NUMBER,
+        "output_x_us": _NUMBER,
+        "output_y_us": _NUMBER,
+        "servo_neutral_x_us": _INT,
+        "servo_neutral_y_us": _INT,
+        "servo_x_us": _INT,
+        "servo_y_us": _INT,
+        "servo_saturated_x": _BOOL,
+        "servo_saturated_y": _BOOL,
+    },
+}
+
+_NON_NEGATIVE = {
+    "sequence",
+    "timestamp_us",
+    "measurement_age_ms",
+    "servo_neutral_x_us",
+    "servo_neutral_y_us",
+    "servo_x_us",
+    "servo_y_us",
+}
 
 
 def _reject_constant(name):
@@ -112,17 +170,27 @@ def parse_telemetry(datagram, received_at):
     packet_type = payload.get("type")
     if packet_type != "telemetry":
         raise TelemetryParseError(f"unrelated packet type {packet_type!r}")
+    
+    mode = payload.get("mode")
+    if not isinstance(mode, str) or mode not in _MODE_FIELDS:
+        raise TelemetryParseError(f"unsupported telemetry mode {mode!r}")
 
-    missing = [name for name in _FIELDS if name not in payload]
+    expected_fields = {**_COMMON_FIELDS, **_MODE_FIELDS[mode]}
+
+    missing = [name for name in expected_fields if name not in payload]
     if missing:
         raise TelemetryParseError(f"missing fields: {', '.join(missing)}")
 
-    values = {name: _check_field(name, payload[name], kind) for name, kind in _FIELDS.items()}
+    values = {name: _check_field(name, payload[name], kind) for name, kind in expected_fields.items()}
 
     if values["sequence"] > UINT32_MAX:
         raise TelemetryParseError("sequence exceeds 32 bits")
 
-    return TelemetrySample(**values, received_at=received_at)
+    return TelemetrySample(
+        mode=mode,
+        received_at=received_at,
+        **values,
+    )
 
 
 def _check_field(name, value, kind):
@@ -233,7 +301,7 @@ class TelemetryReceiver:
     thread. on_failed(message) is called if the socket stops working.
     """
 
-    def __init__(self, on_sample, on_rejected=None, on_failed=None, port=config.PC_TELEMETRY_PORT, host=""):
+    def __init__(self, on_sample, on_rejected=None, on_failed=None, port=config.PC_TELEMETRY_PORT, host=config.PC_TELEMETRY_HOST):
         self._on_sample = on_sample
         self._on_rejected = on_rejected
         self._on_failed = on_failed

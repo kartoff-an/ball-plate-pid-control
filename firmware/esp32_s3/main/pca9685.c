@@ -1,3 +1,14 @@
+/**
+ * @file pca9685.c
+ * @brief PCA9685 16-channel PWM controller driver.
+ *
+ * Provides I2C communication with the PCA9685 PWM controller and
+ * generates servo control pulses at a nominal frequency of 50 Hz.
+ *
+ * The driver configures the PCA9685 oscillator prescaler and provides
+ * an interface for setting individual channel pulse widths in microseconds.
+ */
+
 #include "pca9685.h"
 
 #include "driver/i2c_master.h"

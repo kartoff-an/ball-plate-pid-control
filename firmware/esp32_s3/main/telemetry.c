@@ -1,3 +1,21 @@
+/**
+ * @file telemetry.c
+ * @brief UDP telemetry transmission service.
+ *
+ * Implements a periodic telemetry publisher that sends the latest
+ * controller sample as a JSON-formatted UDP broadcast packet.
+ *
+ * A one-element FreeRTOS queue stores pending telemetry. New samples
+ * overwrite older pending samples, ensuring that transmission favors
+ * the most recent controller state rather than building up a backlog.
+ *
+ * The telemetry task transmits at a nominal rate of 20 Hz.
+ *
+ * @note UDP broadcast destination and transmission settings are configured
+ *       through the module-level constants below.
+ * @note UDP does not guarantee packet delivery or ordering.
+ */
+
 #include "telemetry.h"
 
 #include <stdio.h>
@@ -27,42 +45,137 @@ static struct sockaddr_in s_destination;
 static QueueHandle_t s_queue = NULL;
 static TaskHandle_t s_task = NULL;
 
+static portMUX_TYPE s_telemetry_mux = portMUX_INITIALIZER_UNLOCKED;
+static telemetry_mode_t s_telemetry_mode = TELEMETRY_MODE_POSITION;
+
 static esp_err_t telemetry_send(const telemetry_data_t *data)
 {
     if (data == NULL || s_socket < 0) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    char buffer[TELEMETRY_BUFFER_SIZE];
+    telemetry_mode_t mode;
 
-    int length = snprintf(buffer, sizeof(buffer),
-        "{"
-            "\"type\":\"telemetry\","
-            "\"sequence\":%" PRIu32 ","
-            "\"ball_detected\":%s,"
-            "\"ball_x\":%u,"
-            "\"ball_y\":%u,"
-            "\"measurement_age_ms\":%" PRIu64 ","
-            "\"error_x_mm\":%.2f,"
-            "\"error_y_mm\":%.2f,"
-            "\"output_x_us\":%.2f,"
-            "\"output_y_us\":%.2f,"
-            "\"servo_x_us\":%u,"
-            "\"servo_y_us\":%u,"
-            "\"controller_enabled\":%s"
-        "}",
-        (unsigned long)data->sequence,
-        data->ball_detected ? "true" : "false",
-        (unsigned)data->ball_x,
-        (unsigned)data->ball_y,
-        (long long)data->measurement_age_ms,
-        (double)data->error_x,
-        (double)data->error_y,
-        (double)data->output_x_us,
-        (double)data->output_y_us,
-        (unsigned)data->servo_x_us,
-        (unsigned)data->servo_y_us,
-        data->controller_enabled ? "true" : "false");
+    portENTER_CRITICAL(&s_telemetry_mux);
+    mode = s_telemetry_mode;
+    portEXIT_CRITICAL(&s_telemetry_mux);
+
+    char buffer[TELEMETRY_BUFFER_SIZE];
+    int length = -1;
+
+    switch(mode) {
+        case TELEMETRY_MODE_POSITION:
+            length = snprintf(buffer, sizeof(buffer),
+                "{"
+                    "\"type\":\"telemetry\","
+                    "\"mode\":\"position\","
+                    "\"sequence\":%" PRIu32 ","
+                    "\"timestamp_us\":%" PRId64 ","
+                    "\"ball_detected\":%s,"
+                    "\"measurement_x_mm\":%.3f,"
+                    "\"measurement_y_mm\":%.3f,"
+                    "\"ball_x_mm\":%.3f,"
+                    "\"ball_y_mm\":%.3f,"
+                    "\"target_x_mm\":%.3f,"
+                    "\"target_y_mm\":%.3f,"
+                    "\"error_x_mm\":%.3f,"
+                    "\"error_y_mm\":%.3f,"
+                    "\"measurement_age_ms\":%" PRId64 ","
+                    "\"controller_enabled\":%s"
+                "}",
+                data->sequence,
+                data->timestamp_us,
+                data->ball_detected ? "true" : "false",
+                (double)data->measurement_x_mm,
+                (double)data->measurement_y_mm,
+                (double)data->ball_x_mm,
+                (double)data->ball_y_mm,
+                (double)data->target_x_mm,
+                (double)data->target_y_mm,
+                (double)data->error_x_mm,
+                (double)data->error_y_mm,
+                data->measurement_age_ms,
+                data->controller_enabled ? "true" : "false"
+            );
+            break;
+
+        case TELEMETRY_MODE_VELOCITY:
+            length = snprintf(buffer, sizeof(buffer),
+                "{"
+                    "\"type\":\"telemetry\","
+                    "\"mode\":\"velocity\","
+                    "\"sequence\":%" PRIu32 ","
+                    "\"timestamp_us\":%" PRId64 ","
+                    "\"ball_detected\":%s,"
+                    "\"measurement_x_mm\":%.3f,"
+                    "\"measurement_y_mm\":%.3f,"
+                    "\"ball_x_mm\":%.3f,"
+                    "\"ball_y_mm\":%.3f,"
+                    "\"velocity_x_mm_s\":%.3f,"
+                    "\"velocity_y_mm_s\":%.3f,"
+                    "\"target_x_mm\":%.3f,"
+                    "\"target_y_mm\":%.3f,"
+                    "\"measurement_age_ms\":%" PRId64 ","
+                    "\"controller_enabled\":%s"
+                "}",
+                data->sequence,
+                data->timestamp_us,
+                data->ball_detected ? "true" : "false",
+                (double)data->measurement_x_mm,
+                (double)data->measurement_y_mm,
+                (double)data->ball_x_mm,
+                (double)data->ball_y_mm,
+                (double)data->velocity_x_mm_s,
+                (double)data->velocity_y_mm_s,
+                (double)data->target_x_mm,
+                (double)data->target_y_mm,
+                data->measurement_age_ms,
+                data->controller_enabled ? "true" : "false"
+            );
+            break;
+
+        case TELEMETRY_MODE_SERVO:
+            length = snprintf(buffer, sizeof(buffer),
+                "{"
+                    "\"type\":\"telemetry\","
+                    "\"mode\":\"servo\","
+                    "\"sequence\":%" PRIu32 ","
+                    "\"timestamp_us\":%" PRId64 ","
+                    "\"error_x_mm\":%.3f,"
+                    "\"error_y_mm\":%.3f,"
+                    "\"pid_output_x_us\":%.3f,"
+                    "\"pid_output_y_us\":%.3f,"
+                    "\"output_x_us\":%.3f,"
+                    "\"output_y_us\":%.3f,"
+                    "\"servo_neutral_x_us\":%u,"
+                    "\"servo_neutral_y_us\":%u,"
+                    "\"servo_x_us\":%u,"
+                    "\"servo_y_us\":%u,"
+                    "\"servo_saturated_x\":%s,"
+                    "\"servo_saturated_y\":%s,"
+                    "\"controller_enabled\":%s"
+                "}",
+                data->sequence,
+                data->timestamp_us,
+                (double)data->error_x_mm,
+                (double)data->error_y_mm,
+                (double)data->pid_output_x_us,
+                (double)data->pid_output_y_us,
+                (double)data->output_x_us,
+                (double)data->output_y_us,
+                (unsigned)data->servo_neutral_x_us,
+                (unsigned)data->servo_neutral_y_us,
+                (unsigned)data->servo_x_us,
+                (unsigned)data->servo_y_us,
+                data->servo_saturated_x ? "true" : "false",
+                data->servo_saturated_y ? "true" : "false",
+                data->controller_enabled ? "true" : "false"
+            );
+            break;
+
+        default:
+            return ESP_ERR_INVALID_ARG;
+    }
 
     if (length < 0 || length >= sizeof(buffer)) {
         return ESP_ERR_INVALID_SIZE;
@@ -141,6 +254,21 @@ esp_err_t telemetry_init(void)
     }
 
     ESP_LOGI(TAG, "UDP telemetry initialized: %s:%d", TELEMETRY_BROADCAST_IP, TELEMETRY_PORT);
+    return ESP_OK;
+}
+
+esp_err_t telemetry_set_mode(telemetry_mode_t mode)
+{
+    if (mode != TELEMETRY_MODE_POSITION && mode != TELEMETRY_MODE_VELOCITY && mode != TELEMETRY_MODE_SERVO) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&s_telemetry_mux);
+    s_telemetry_mode = mode;
+    portEXIT_CRITICAL(&s_telemetry_mux);
+
+    ESP_LOGI(TAG, "Telemetry mode updated: %d", (int)mode);
+
     return ESP_OK;
 }
 

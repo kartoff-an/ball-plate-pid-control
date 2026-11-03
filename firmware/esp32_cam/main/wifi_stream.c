@@ -1,3 +1,30 @@
+/**
+ * @file wifi_stream.c
+ * @brief UDP transport implementation for grayscale camera frames.
+ *
+ * Implements a buffered UDP streaming service for transmitting
+ * grayscale camera frames to a registered PC.
+ *
+ * Frame submission and network transmission are decoupled using
+ * two internal frame buffers and FreeRTOS queues:
+ *
+ * 1. The camera task submits a frame.
+ * 2. The module copies it into an available frame buffer.
+ * 3. The buffer index is added to the transmission queue.
+ * 4. The streaming task retrieves the newest queued frame.
+ * 5. The frame is divided into indexed UDP packets and transmitted.
+ * 6. The buffer is returned to the available-buffer queue.
+ *
+ * The receiver registers by sending "HELO" to UDP port 9000.
+ * Registration is refreshed by subsequent heartbeat messages.
+ * Streaming stops when no valid heartbeat is received within the
+ * configured timeout.
+ *
+ * @note UDP does not guarantee packet delivery, ordering, or retransmission.
+ * @note The receiver must reassemble packets using the frame sequence,
+ *       packet index, and total packet count in each packet header.
+ */
+
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -10,6 +37,7 @@
 #include <arpa/inet.h>
 
 #include "wifi_stream.h"
+#include "camera_config.h"
 
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -18,24 +46,21 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
-#define FRAME_STREAM_UDP_PORT   9000
+#define STREAM_UDP_PORT                 9000
 
-#define CLIENT_HEARTBEAT_TIMEOUT_MS 3000
-#define CLIENT_TIMEOUT_CHECK_MS 100
+#define CLIENT_HEARTBEAT_TIMEOUT_MS     3000
+#define CLIENT_TIMEOUT_CHECK_MS         100
 
-#define FRAME_WIDTH             160
-#define FRAME_HEIGHT            120
-#define FRAME_SIZE              (FRAME_WIDTH * FRAME_HEIGHT)
+#define FRAME_HEADER_SIZE               16
+#define FRAME_CHUNK_SIZE                1200
+#define FRAME_PACKET_SIZE               (FRAME_HEADER_SIZE + FRAME_CHUNK_SIZE)
+#define PACKETS_PER_FRAME               ((CAMERA_FRAME_SIZE + FRAME_CHUNK_SIZE - 1) / FRAME_CHUNK_SIZE)
 
-#define FRAME_HEADER_SIZE       16
-#define FRAME_CHUNK_SIZE        1200
-#define FRAME_PACKET_SIZE       (FRAME_HEADER_SIZE + FRAME_CHUNK_SIZE)
-#define PACKETS_PER_FRAME       ((FRAME_SIZE + FRAME_CHUNK_SIZE - 1) / FRAME_CHUNK_SIZE)
-
-#define FRAME_STREAM_TASK_STACK_SIZE 6144
-#define FRAME_STREAM_TASK_PRIORITY   4
-#define FRAME_BUFFER_COUNT      2
-#define FRAME_QUEUE_WAIT_MS     20
+#define STREAM_TASK_STACK_SIZE          6144
+#define STREAM_TASK_PRIORITY            4
+#define STREAM_TASK_CORE                0
+#define FRAME_BUFFER_COUNT              2
+#define FRAME_QUEUE_WAIT_MS             20
 
 static const char *TAG = "WIFI_STREAM";
 
@@ -45,7 +70,6 @@ static QueueHandle_t queued_frame_slots;
 static uint8_t *grayscale_frame_buffers[FRAME_BUFFER_COUNT];
 static uint32_t frame_sequences[FRAME_BUFFER_COUNT];
 
-/* Return a frame buffer to the available-buffer queue. */
 static void release_frame_slot(uint8_t slot)
 {
     if (xQueueSend(available_frame_slots, &slot, 0) != pdTRUE) {
@@ -53,7 +77,6 @@ static void release_frame_slot(uint8_t slot)
     }
 }
 
-/* Release partially or fully initialized resources. */
 static void destroy_frame_queues(void)
 {
     if (available_frame_slots != NULL) {
@@ -72,7 +95,6 @@ static void destroy_frame_queues(void)
     }
 }
 
-/* Allocate frame buffers and initialize the queues. */
 static esp_err_t initialize_frame_queues(void)
 {
     available_frame_slots = xQueueCreate(FRAME_BUFFER_COUNT, sizeof(uint8_t));
@@ -83,7 +105,7 @@ static esp_err_t initialize_frame_queues(void)
     }
 
     for (uint8_t i = 0; i < FRAME_BUFFER_COUNT; i++) {
-        grayscale_frame_buffers[i] = heap_caps_malloc(FRAME_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        grayscale_frame_buffers[i] = heap_caps_malloc(CAMERA_FRAME_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (grayscale_frame_buffers[i] == NULL) {
             destroy_frame_queues();
             return ESP_ERR_NO_MEM;
@@ -98,13 +120,12 @@ static esp_err_t initialize_frame_queues(void)
     return ESP_OK;
 }
 
-/* Copy a frame into an available buffer without blocking. */
 esp_err_t wifi_stream_submit_frame(
     uint32_t frame_sequence,
     const uint8_t *grayscale_pixels,
     size_t frame_size_bytes)
 {
-    if (grayscale_pixels == NULL || frame_size_bytes != FRAME_SIZE) {
+    if (grayscale_pixels == NULL || frame_size_bytes != CAMERA_FRAME_SIZE) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -129,15 +150,24 @@ esp_err_t wifi_stream_submit_frame(
 }
 
 
-/*
- * Send a grayscale frame as indexed UDP packets.
+/**
+ * @brief Transmit one grayscale frame as indexed UDP packets.
  *
- * Header:
- *   0-3   "GRAY"
- *   4-7   Frame sequence, uint32 big-endian
- *   8-11  Frame size, uint32 big-endian
- *   12-13 Packet index, uint16 big-endian
- *   14-15 Total packets, uint16 big-endian
+ * Splits the frame into payload chunks and sends each chunk to the
+ * specified client address.
+ *
+ * Each packet contains a 16-byte header:
+ *
+ * | Offset | Size | Field |
+ * |--------|------|-------|
+ * | 0      | 4    | Magic identifier: "GRAY" |
+ * | 4      | 4    | Frame sequence, uint32 big-endian |
+ * | 8      | 4    | Frame size, uint32 big-endian |
+ * | 12     | 2    | Packet index, uint16 big-endian |
+ * | 14     | 2    | Total packet count, uint16 big-endian |
+ *
+ * The header is followed by up to FRAME_CHUNK_SIZE bytes of grayscale
+ * image data.
  */
 static int send_frame_udp(
     int socket_fd,
@@ -149,8 +179,8 @@ static int send_frame_udp(
     size_t frame_pixel_offset = 0;
     uint16_t packet_index = 0;
 
-    while (frame_pixel_offset < FRAME_SIZE) {
-        size_t payload_size = FRAME_SIZE - frame_pixel_offset;
+    while (frame_pixel_offset < CAMERA_FRAME_SIZE) {
+        size_t payload_size = CAMERA_FRAME_SIZE - frame_pixel_offset;
 
         if (payload_size > FRAME_CHUNK_SIZE) {
             payload_size = FRAME_CHUNK_SIZE;
@@ -161,7 +191,7 @@ static int send_frame_udp(
         uint32_t network_order_value32 = htonl(frame_sequence);
         memcpy(udp_packet + 4, &network_order_value32, sizeof(network_order_value32));
 
-        network_order_value32 = htonl(FRAME_SIZE);
+        network_order_value32 = htonl(CAMERA_FRAME_SIZE);
         memcpy(udp_packet + 8, &network_order_value32, sizeof(network_order_value32));
 
         uint16_t network_order_value16 = htons(packet_index);
@@ -198,11 +228,19 @@ static int send_frame_udp(
     return 0;
 }
 
-/*
- * Accept HELLO datagrams during streaming.
+/**
+ * @brief Receive and process a PC registration heartbeat.
  *
- * A PC can register or update its receiving port by sending
- * the four ASCII bytes "HELO" to the camera's station IP on port 9000.
+ * Performs a non-blocking receive on the streaming socket. A valid
+ * registration datagram must contain exactly four bytes: "HELO".
+ *
+ * When valid, the sender address replaces the current client address.
+ * This allows the PC to update its receiving UDP port or register
+ * from a different source endpoint.
+ *
+ * @note Invalid datagrams are ignored.
+ * @note EAGAIN and EWOULDBLOCK indicate that no datagram is currently
+ *       available and are not treated as errors.
  */
 static bool update_client_addr(int socket_fd, struct sockaddr_in *client_addr)
 {
@@ -259,7 +297,6 @@ static void discard_queued_frames(void)
     }
 }
 
-/* Stream detections and frames to the registered PC. */
 static void stream_client_udp(int socket_fd, struct sockaddr_in client_addr)
 {
     TickType_t last_heartbeat_tick = xTaskGetTickCount();
@@ -309,7 +346,7 @@ static void stream_client_udp(int socket_fd, struct sockaddr_in client_addr)
  * - Wait for a PC registration datagram.
  * - Stream camera frames and ball detection data to the sender's IP and port.
  */
-static void frame_stream_server_task(void *task_context)
+static void stream_server_task(void *task_context)
 {
     (void)task_context;
 
@@ -324,7 +361,7 @@ static void frame_stream_server_task(void *task_context)
     struct sockaddr_in server_address = {0};
 
     server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(FRAME_STREAM_UDP_PORT);
+    server_address.sin_port = htons(STREAM_UDP_PORT);
     server_address.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(socket_fd, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) {
@@ -334,7 +371,7 @@ static void frame_stream_server_task(void *task_context)
         return;
     }
 
-    ESP_LOGI(TAG, "UDP server listening on port %d", FRAME_STREAM_UDP_PORT);
+    ESP_LOGI(TAG, "UDP server listening on port %d", STREAM_UDP_PORT);
 
     while (true) {
         uint8_t registration_datagram[32];
@@ -381,13 +418,14 @@ esp_err_t wifi_stream_init(void)
     }
 
 
-    BaseType_t frame_server_task_result = xTaskCreate(
-        frame_stream_server_task,
-        "frame_stream_server",
-        FRAME_STREAM_TASK_STACK_SIZE,
+    BaseType_t frame_server_task_result = xTaskCreatePinnedToCore(
+        stream_server_task,
+        "stream_server",
+        STREAM_TASK_STACK_SIZE,
         NULL,
-        FRAME_STREAM_TASK_PRIORITY,
-        NULL
+        STREAM_TASK_PRIORITY,
+        NULL,
+        STREAM_TASK_CORE
     );
 
     if (frame_server_task_result != pdPASS) {
@@ -396,7 +434,7 @@ esp_err_t wifi_stream_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "UDP stream initialized on port %d", FRAME_STREAM_UDP_PORT);
+    ESP_LOGI(TAG, "UDP stream initialized on port %d", STREAM_UDP_PORT);
 
     return ESP_OK;
 }

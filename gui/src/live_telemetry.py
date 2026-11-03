@@ -120,8 +120,8 @@ def _store_in_app_state(sample):
     with app_state._lock:
         ball = app_state.ball
         ball.detected = sample.ball_detected
-        ball.x = sample.ball_x
-        ball.y = sample.ball_y
+        ball.x = sample.ball_x_mm
+        ball.y = sample.ball_y_mm
         ball.measurement_age_ms = sample.measurement_age_ms
         ball.sequence = sample.sequence
 

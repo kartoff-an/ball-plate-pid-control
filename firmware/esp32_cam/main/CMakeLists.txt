@@ -3,9 +3,10 @@ idf_component_register(
         "ball_now.c"
         "app_main.c"
         "ball_detection.c"
-        "camera_capture.c"
+        "camera.c"
         "wifi_station.c"
         "wifi_stream.c"
+        "vision_tuner.c"
     INCLUDE_DIRS "include"
     REQUIRES
         esp32-camera

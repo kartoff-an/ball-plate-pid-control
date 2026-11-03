@@ -13,12 +13,19 @@ from communication.telemetry_receiver import (
     TelemetrySample,
     ReceiverStats
 )
+from communication.esp_sender import ESPSender
 
 from widgets.camera_calibration import CameraCalibrationPage
 from widgets.plots import PlotsWidget
 from widgets.telemetry import TelemetryWidget
+from widgets.controller_panel import ControllerPanel
+
+import config
 
 log = logging.getLogger(__name__)
+
+def _log_telemetry_status(self, message: str):
+    log.info("[TELEMETRY] %s", message)
 
 class TelemetryBridge(QObject):
     sample_received = pyqtSignal(object, object)
@@ -33,9 +40,13 @@ class BallPlateWindow(QWidget):
         self.resize(1200, 750)
 
         self.telemetry = TelemetryWidget()
+        self.telemetry.setVisible(False)
         self.plots = PlotsWidget()
+        self.esp_sender = ESPSender()
+        self.plots.mode_changed.connect(self.esp_sender.set_telemetry_mode)
+        self.controller_panel = ControllerPanel(self.esp_sender)
 
-        self.calibrate_button = QPushButton("Calibrate Plate")
+        self.calibrate_button = QPushButton("Calibrate Vision")
         self.calibrate_button.clicked.connect(self.start_calibration)
 
         self.bridge = TelemetryBridge()
@@ -79,7 +90,7 @@ class BallPlateWindow(QWidget):
 
         left_layout = QVBoxLayout()
         left_layout.addLayout(self.preview_header)
-        left_layout.addWidget(self.telemetry, stretch=1)
+        left_layout.addWidget(self.controller_panel, stretch=3)
 
         main_layout = QHBoxLayout(self.dashboard_page)
         main_layout.addLayout(left_layout, stretch=2)
@@ -111,14 +122,15 @@ class BallPlateWindow(QWidget):
     def _on_sample(self, sample: TelemetrySample, stats: ReceiverStats):
         """Runs on the Qt thread after the bridge emits a sample."""
         self.latest_sample = sample
+
         self.link_monitor.packet_received(time.monotonic())
 
         with state.app_state._lock:
             state.app_state.connection.connected = True
             state.app_state.connection.last_error = None
             state.app_state.ball.detected = sample.ball_detected
-            state.app_state.ball.x = sample.ball_x
-            state.app_state.ball.y = sample.ball_y
+            state.app_state.ball.x = sample.ball_x_mm
+            state.app_state.ball.y = sample.ball_y_mm
             state.app_state.ball.measurement_age_ms = sample.measurement_age_ms
             state.app_state.ball.sequence = sample.sequence
 
@@ -132,6 +144,26 @@ class BallPlateWindow(QWidget):
         self.telemetry.set_sample(sample)
         self.telemetry.set_stats(stats)
         self.telemetry.set_link_state(LinkState.LIVE)
+
+        log.info(
+            "[TELEMETRY] Received | seq=%s | detected=%s | "
+            "ball=(%.1f, %.1f) px | age=%s ms | "
+            "error=(%.2f, %.2f) mm | output=(%s, %s) us | "
+            "controller=%s | received=%s rejected=%s missed=%s",
+            sample.sequence,
+            sample.ball_detected,
+            sample.ball_x_mm,
+            sample.ball_y_mm,
+            sample.measurement_age_ms,
+            sample.error_x_mm,
+            sample.error_y_mm,
+            sample.output_x_us,
+            sample.output_y_us,
+            sample.controller_enabled,
+            stats.received,
+            stats.rejected,
+            stats.missed,
+        )
 
     def _on_packet_rejected(self, reason: str, stats: ReceiverStats):
         log.warning(
@@ -155,24 +187,25 @@ class BallPlateWindow(QWidget):
         if self.link_monitor.state(time.monotonic()) != LinkState.LIVE:
             return
 
-        if sample is None or not sample.ball_detected:
+        if sample is None:
+            return
+
+        if sample.mode != "servo" and not sample.ball_detected:
             return
 
         if sample.sequence == self.last_plotted_sequence:
             return
 
-        ball_px = (sample.ball_x, sample.ball_y)
+        measured_mm = (sample.ball_x_mm, sample.ball_y_mm)
+        target_mm = (sample.target_x_mm, sample.target_y_mm)
 
-        # TODO: convert from px to mm
-        measured_mm = ball_px
+        # with state.app_state._lock:
+        #     target_x = state.app_state.target.x
+        #     target_y = state.app_state.target.y
 
-        with state.app_state._lock:
-            target_x = state.app_state.target.x
-            target_y = state.app_state.target.y
+        # target_mm = (target_x, target_y)
 
-        target_mm = (target_x, target_y)
-
-        self.plots.add_sample(elapsed, measured_mm, target_mm)
+        self.plots.add_sample(elapsed, measured_mm, target_mm, sample=sample)
         self.last_plotted_sequence = sample.sequence
 
     def _update_link_status(self):
@@ -200,6 +233,7 @@ class BallPlateWindow(QWidget):
         self.timer.stop()
         self.link_timer.stop()
         self.calibration_page.stop_camera()
+        self.esp_sender.close()
 
         if hasattr(self, "receiver"):
             self.receiver.stop()

@@ -1,10 +1,12 @@
 ESP32_HOST = "192.168.4.1"
 CAMERA_HOST = "192.168.4.2"
+PC_TELEMETRY_HOST = "0.0.0.0"
 
 CAMERA_UDP_PORT = 9000
 PC_CAMERA_PORT = 9001
 ESP32_COMMAND_PORT = 9002
 PC_TELEMETRY_PORT = 9003
+VISION_TUNER_PORT = 9006
 TELEMETRY_STALE_TIMEOUT_S = 1.0
 
 CAMERA_FRAME_WIDTH = 160
@@ -21,8 +23,30 @@ CAMERA_MAX_PENDING_FRAMES = 4
 CAMERA_FRAME_EXPIRY_S = 0.25
 CAMERA_HELLO_INTERVAL_S = 1.0
 
-PLATE_WIDTH = 220
-PLATE_HEIGHT = 220
+PLATE_SIZE_MM = 220.0
+HALF_PLATE_SIZE_MM = PLATE_SIZE_MM / 2.0
+PLATE_MIN_MM = -HALF_PLATE_SIZE_MM
+PLATE_MAX_MM = HALF_PLATE_SIZE_MM
+
+# Firmware uses a center-based coordinate system with the plate center as the origin.
+# The camera sensor is 160x120, while the relevant plate crop spans 120 px along each axis.
+# This gives a conversion scale of 220 mm / 120 px = 1.833... mm per px.
+PLATE_CENTER_X_PX = CAMERA_FRAME_WIDTH / 2.0
+PLATE_CENTER_Y_PX = CAMERA_FRAME_HEIGHT / 2.0
+PIXELS_PER_PLATE_AXIS = 120.0
+MM_PER_PIXEL = PLATE_SIZE_MM / PIXELS_PER_PLATE_AXIS
+
+
+def pixels_to_mm(pixel_value, center_pixel=PLATE_CENTER_X_PX):
+    return (pixel_value - center_pixel) * MM_PER_PIXEL
+
+
+def mm_to_pixels(mm_value, center_pixel=PLATE_CENTER_X_PX):
+    return center_pixel + (mm_value / MM_PER_PIXEL)
+
+
+PLATE_WIDTH = PLATE_SIZE_MM
+PLATE_HEIGHT = PLATE_SIZE_MM
 
 DEFAULT_TARGET_X = 0.0
 DEFAULT_TARGET_Y = 0.0

@@ -53,6 +53,38 @@ class ESPSender:
             }
         })
 
+    def set_servo_neutral(  self, neutral_x_us, neutral_y_us):
+        self.send({
+            "type": "servo_calibration",
+            "neutral_x_us": int(neutral_x_us),
+            "neutral_y_us": int(neutral_y_us)
+        })
+
+    def set_kalman_filter(self, measurement_variance: float, acceleration_variance: float):
+        if not math.isfinite(measurement_variance) or not math.isfinite(acceleration_variance):
+            raise ValueError("Kalman variances must be finite numbers.")
+
+        if measurement_variance <= 0 or acceleration_variance <= 0:
+            raise ValueError("Kalman variances must be positive.")
+
+        self.send({
+            "type": "kalman_config",
+            "measurement_variance": float(measurement_variance),
+            "acceleration_variance": float(acceleration_variance),
+        })
+
+    def set_telemetry_mode(self, mode: str):
+        if mode == "pid_analysis":
+            return
+
+        if mode not in ("position", "velocity", "servo"):
+            raise ValueError("Invalid telemetry mode.")
+
+        self.send({
+            "type": "telemetry_mode",
+            "mode": mode
+        })
+
     def start(self) -> None:
         """Request that the controller starts."""
         self.send({

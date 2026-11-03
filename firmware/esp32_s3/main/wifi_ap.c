@@ -1,3 +1,17 @@
+/**
+ * @file wifi_ap.c
+ * @brief Wi-Fi SoftAP initialization and event handling.
+ *
+ * Configures the ESP32-S3 as the central Wi-Fi access point for the
+ * ball-and-plate system.
+ *
+ * The access point provides the network through which the ESP32-CAM
+ * communicates with the S3 and the PC receives telemetry and sends
+ * controller commands.
+ *
+ * Client connection and disconnection events are logged with the
+ * corresponding station MAC address.
+ */
 
 #include "wifi_ap.h"
 
@@ -106,10 +120,12 @@ esp_err_t wifi_ap_init(void)
         return error;
     }
 
+    esp_netif_ip_info_t ip_info;
+    error = esp_netif_get_ip_info(ap_netif, &ip_info);
     ESP_LOGI(TAG, "Access point started");
     ESP_LOGI(TAG, "SSID: %s", WIFI_AP_SSID);
     ESP_LOGI(TAG, "Channel: %d", WIFI_AP_CHANNEL);
-    ESP_LOGI(TAG, "AP IP: 192.168.4.1");
+    ESP_LOGI(TAG, "AP IP: ", IPSTR, IP2STR(&ip_info.ip));
 
     return ESP_OK;
 }

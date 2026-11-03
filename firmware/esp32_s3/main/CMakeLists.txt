@@ -6,6 +6,9 @@ idf_component_register(
         "pid_controller.c"
         "wifi_ap.c"
         "telemetry.c"
+        "calibration_commands.c"
+        "config_commands.c"
+        "kalman_filter.c"
     INCLUDE_DIRS "include"
     REQUIRES
         esp_common
@@ -16,5 +19,4 @@ idf_component_register(
         esp_driver_i2c
         nvs_flash
         freertos
-
 )

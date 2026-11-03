@@ -15,6 +15,7 @@ class BallState:
     y: Optional[float] = None
     measurement_age_ms: Optional[int] = None
     sequence: Optional[int] = None
+    received_at: Optional[float] = None
 
 @dataclass
 class PIDState:
@@ -22,10 +23,10 @@ class PIDState:
     error_y: Optional[float] = None
     output_x_us: Optional[int] = None
     output_y_us: Optional[int] = None
-    kp_x: float = 0.0
+    kp_x: float = 0.5
     ki_x: float = 0.0
     kd_x: float = 0.0
-    kp_y: float = 0.0
+    kp_y: float = 0.5
     ki_y: float = 0.0
     kd_y: float = 0.0
 

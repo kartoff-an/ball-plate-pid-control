@@ -3,13 +3,15 @@
 #include "pca9685.h"
 #include "pid_controller.h"
 #include "telemetry.h"
+#include "calibration_commands.h"
+#include "config_commands.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define DETECTION_DEBUG     0
+#define DETECTION_DEBUG     1
 
 static const char *TAG = "BALL_PLATE";
 
@@ -55,16 +57,21 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP32-S3 AP is ready");
 
     ESP_ERROR_CHECK(telemetry_init());
+    ESP_ERROR_CHECK(telemetry_set_mode(TELEMETRY_MODE_POSITION));
 
-    // ESP_ERROR_CHECK(pca9685_init(12, 13));
-    // ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
-    // ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
+    ESP_ERROR_CHECK(pca9685_init(12, 13));
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(0, 1500));
+    ESP_ERROR_CHECK(pca9685_set_pulse_us(1, 1500));
 
     ESP_ERROR_CHECK(ball_receiver_init());
 
-    #if DETECTION_DEBUG
+#if DETECTION_DEBUG
     xTaskCreate(ball_monitor_task, "ball_monitor", 3072, NULL, 3, NULL);
-    #endif
+#endif
 
     ESP_ERROR_CHECK(pid_controller_init());
+
+    ESP_ERROR_CHECK(config_commands_init());
+
+    ESP_ERROR_CHECK(calibration_commands_init());
 }

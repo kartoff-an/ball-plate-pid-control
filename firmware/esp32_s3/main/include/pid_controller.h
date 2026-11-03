@@ -91,6 +91,8 @@ esp_err_t pid_controller_get_gains(pid_axis_id_t axis, pid_gains_t * gains);
  *
  * The target coordinates are expressed in millimeters relative to the
  * plate center. The accepted range is -110 mm to +110 mm on each axis.
+ * Setpoint changes are applied with a rate-limited ramp so the error does
+ * not jump abruptly and the PID integral state remains intact.
  *
  * @param[in] x_mm Target X coordinate in millimeters.
  * @param[in] y_mm Target Y coordinate in millimeters.

@@ -77,12 +77,18 @@ class ControllerPanel(QWidget):
             "kd": (10.0, 0.001),
         }
 
+        gain_defaults = {
+            "kp": 0.5,
+            "ki": 0.0,
+            "kd": 0.0,
+        }
+
         for row, gain_name in enumerate(("kp", "ki", "kd"), start=1):
             pid_layout.addWidget(QLabel(gain_name.upper()), row, 0)
 
             for axis, column in (("x", 1), ("y", 2)):
                 maximum, step = gain_limits[gain_name]
-                spin = self._number_input(0.0, maximum, 0.0, step, 3)
+                spin = self._number_input(0.0, maximum, gain_defaults[gain_name], step, 3)
                 self.gains[f"{gain_name}_{axis}"] = spin
                 pid_layout.addWidget(spin, row, column)
 
@@ -190,6 +196,14 @@ class ControllerPanel(QWidget):
         kp_y = self.gains["kp_y"].value()
         ki_y = self.gains["ki_y"].value()
         kd_y = self.gains["kd_y"].value()
+
+        with state.app_state._lock:
+            state.app_state.pid.kp_x = kp_x
+            state.app_state.pid.ki_x = ki_x
+            state.app_state.pid.kd_x = kd_x
+            state.app_state.pid.kp_y = kp_y
+            state.app_state.pid.ki_y = ki_y
+            state.app_state.pid.kd_y = kd_y
 
         self._run_command("PID gains", lambda: self.sender.set_pid_gains(
                 kp_x, ki_x, kd_x,

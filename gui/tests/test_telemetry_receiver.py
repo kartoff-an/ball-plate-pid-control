@@ -64,6 +64,20 @@ class ParseTelemetryTests(unittest.TestCase):
         self.assertIsInstance(sample.error_x_mm, float)
         self.assertIsInstance(sample.ball_y_mm, float)
 
+    def test_parses_servo_mode_packet(self):
+        datagram = (
+            b'{"type":"telemetry","mode":"servo","sequence":7,"timestamp_us":123,"controller_enabled":true,'
+            b'"error_x_mm":-3.5,"error_y_mm":7.0,"pid_output_x_us":1000.0,"pid_output_y_us":2000.0,'
+            b'"output_x_us":1500.0,"output_y_us":1800.0,"servo_neutral_x_us":1500,"servo_neutral_y_us":1500,'
+            b'"servo_x_us":1700,"servo_y_us":1600,"servo_saturated_x":false,"servo_saturated_y":false}'
+        )
+        sample = parse_telemetry(datagram, received_at=4.2)
+        self.assertEqual(sample.mode, "servo")
+        self.assertEqual(sample.servo_x_us, 1700)
+        self.assertEqual(sample.servo_y_us, 1600)
+        self.assertIs(sample.controller_enabled, True)
+        self.assertEqual(sample.received_at, 4.2)
+
     def test_ignores_unknown_extra_fields(self):
         sample = parse_telemetry(packet(future_field="anything"), received_at=0)
         self.assertEqual(sample.sequence, 42)

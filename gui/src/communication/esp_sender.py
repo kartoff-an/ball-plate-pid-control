@@ -74,6 +74,9 @@ class ESPSender:
         })
 
     def set_telemetry_mode(self, mode: str):
+        if mode == "pid_analysis":
+            return
+
         if mode not in ("position", "velocity", "servo"):
             raise ValueError("Invalid telemetry mode.")
 

@@ -187,7 +187,10 @@ class BallPlateWindow(QWidget):
         if self.link_monitor.state(time.monotonic()) != LinkState.LIVE:
             return
 
-        if sample is None or not sample.ball_detected:
+        if sample is None:
+            return
+
+        if sample.mode != "servo" and not sample.ball_detected:
             return
 
         if sample.sequence == self.last_plotted_sequence:

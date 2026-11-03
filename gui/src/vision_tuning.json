@@ -1,5 +1,5 @@
 {
-    "threshold": 90,
+    "threshold": 180,
     "min_area": 200,
     "max_area": 600,
     "min_aspect": 0.7,

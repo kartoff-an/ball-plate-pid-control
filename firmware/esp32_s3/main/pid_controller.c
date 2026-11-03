@@ -81,6 +81,10 @@
 #define SERVO_X_SIGN                -1.0f
 #define SERVO_Y_SIGN                -1.0f
 
+#define SETPOINT_RAMP_RATE_MM_S     80.0f
+#define INTEGRAL_DEADBAND_MM        0.15f
+#define INTEGRAL_LIMIT_MM           100.0f
+
 #define CONTROL_OUTPUT_ENABLED      1
 
 #define CONTROL_TASK_STACK_SIZE    4096
@@ -92,6 +96,8 @@ static portMUX_TYPE s_pid_config_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static float s_target_x_mm = 0.0f;
 static float s_target_y_mm = 0.0f;
+static float s_requested_target_x_mm = 0.0f;
+static float s_requested_target_y_mm = 0.0f;
 
 static kalman_filter_t s_ball_filter;
 
@@ -134,6 +140,17 @@ static float clampf(float value, float minimum, float maximum)
         return maximum;
     }
     return value;
+}
+
+static float ramp_to_target(float current, float target, float dt_seconds)
+{
+    if (!isfinite(current) || !isfinite(target) || dt_seconds <= 0.0f) {
+        return target;
+    }
+
+    const float max_step = SETPOINT_RAMP_RATE_MM_S * dt_seconds;
+    const float delta = target - current;
+    return current + clampf(delta, -max_step, max_step);
 }
 
 static float pixels_to_mm(float pixel, float center_pixel)
@@ -203,7 +220,6 @@ esp_err_t pid_controller_get_gains(pid_axis_id_t axis, pid_gains_t *gains)
 static float pid_update(pid_axis_t *pid, float error, float velocity_mm_s, float dt_seconds)
 {
     if (dt_seconds <= 0.0f || dt_seconds > 0.25f) {
-        pid->integral = 0.0f;
         return 0.0f;
     }
 
@@ -218,20 +234,28 @@ static float pid_update(pid_axis_t *pid, float error, float velocity_mm_s, float
     portEXIT_CRITICAL(&s_pid_config_mux);
 
     const float derivative = -velocity_mm_s;
-    const float proposed_integral = clampf(pid->integral + error * dt_seconds, -100.0f, 100.0f);
-    float candidate_output = kp * error + ki * proposed_integral + kd * derivative;
+    const float proportional = kp * error;
+    const float derivative_term = kd * derivative;
+    const float output_without_integral = proportional + derivative_term;
 
-    bool saturated_high = candidate_output > pid->output_limit;
-    bool saturated_low = candidate_output < -pid->output_limit;
-    bool drives_further_into_saturation = (saturated_high && error > 0.0f) || (saturated_low && error < 0.0f);
+    const bool should_integrate = fabsf(error) > INTEGRAL_DEADBAND_MM || fabsf(velocity_mm_s) > INTEGRAL_DEADBAND_MM;
+    const float integral_limit = ki > 0.0f ? clampf((pid->output_limit - fabsf(output_without_integral)) / ki, 0.0f, INTEGRAL_LIMIT_MM) : 0.0f;
 
-    // prevent the integral from winding up against output limits
-    if (!drives_further_into_saturation) {
-        pid->integral = proposed_integral;
+    pid->integral = clampf(pid->integral, -INTEGRAL_LIMIT_MM, INTEGRAL_LIMIT_MM);
+
+    if (should_integrate) {
+        const float proposed_integral = clampf(pid->integral + error * dt_seconds, -integral_limit, integral_limit);
+        const float candidate_output = proportional + ki * proposed_integral + derivative_term;
+        const bool saturated_high = candidate_output > pid->output_limit;
+        const bool saturated_low = candidate_output < -pid->output_limit;
+        const bool anti_windup = saturated_high || saturated_low;
+
+        if (!anti_windup) {
+            pid->integral = proposed_integral;
+        }
     }
 
-    float output = kp * error + ki * pid->integral + kd * derivative;
-
+    const float output = proportional + ki * pid->integral + derivative_term;
     return clampf(output, -pid->output_limit, pid->output_limit);
 }
 
@@ -320,6 +344,9 @@ static void control_task(void *arg)
 
         s_reset_requested = false;
         s_neutral_requested = false;
+
+        s_target_x_mm = ramp_to_target(s_target_x_mm, s_requested_target_x_mm, ((float)CONTROL_PERIOD_MS / 1000.0f));
+        s_target_y_mm = ramp_to_target(s_target_y_mm, s_requested_target_y_mm, ((float)CONTROL_PERIOD_MS / 1000.0f));
 
         target_x_mm = s_target_x_mm;
         target_y_mm = s_target_y_mm;
@@ -531,8 +558,8 @@ esp_err_t pid_controller_set_target(float x_mm, float y_mm)
     }
 
     portENTER_CRITICAL(&s_pid_config_mux);
-    s_target_x_mm = x_mm;
-    s_target_y_mm = y_mm;
+    s_requested_target_x_mm = x_mm;
+    s_requested_target_y_mm = y_mm;
     portEXIT_CRITICAL(&s_pid_config_mux);
 
     return ESP_OK;
